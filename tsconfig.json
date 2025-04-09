@@ -1,14 +1,33 @@
 {
   "compilerOptions": {
+    // Adjust your desired ECMAScript level
     "target": "ES2017",
+
+    // Include the libs you need
     "lib": ["dom", "dom.iterable", "esnext"],
+
+    // If you're using JS in your project
     "allowJs": true,
+
+    // We need to skipLibCheck to speed up type checking in a Next.js environment
     "skipLibCheck": true,
     "strict": true,
-    "noEmit": true,
+
+    // CRITICAL: Must allow emit for your seed scripts to compile
+    "noEmit": false,
+
+    // Use ESNext, or CommonJS if you prefer
+    // - If you use module=esnext, your compiled files will be ESM
+    // - If you want them to be CJS, set module=commonjs
+    "module": "commonjs",
+
+    // This instructs TS to place compiled files in "dist" folder
+    "outDir": "dist",
+
     "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "bundler",
+    // "moduleResolution": "bundler" might be changed to "node" if you prefer
+    "moduleResolution": "node",
+
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "preserve",
@@ -22,6 +41,16 @@
       "@/*": ["./*"]
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+
+  // Your includes
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    // Add any other directories you don't want to compile
+  ]
 }

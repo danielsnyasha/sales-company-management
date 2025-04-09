@@ -1,0 +1,81 @@
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum EventType {
+  CGI
+  QUOTE
+  ORDER
+}
+
+model Event {
+  id                    String    @id @map("_id") @default(auto()) @db.ObjectId
+  eventType             EventType
+  referenceCode         String    @unique
+  date                  DateTime
+  quoteReceivedAt       DateTime?
+  csiConvertedAt        DateTime?
+  jobCompletedAt        DateTime?
+  natureOfWork          String[]  @db.String
+  actualWorkDescription String?
+  processCost           Float?
+  contactPerson         String?
+  phone                 String?
+  status                String
+  notes                 String?
+  leadTime              Int?
+  companyName           String?
+  customerName          String?
+  productName           String?
+  quantity              Int?
+  price                 Float?
+  deliveryDate          DateTime?
+  region                String?
+  salesRepresentative   String?
+  priority              String?
+  quoteNumber           String?
+  paymentStatus         String?
+  shippingMethod        String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // New: Customer documents
+  poNumber              String?   // PO number received from customer
+  customerQuoteNumber   String?   // Customer's original quote reference
+
+  // New: Boolean milestone indicators
+  quoteReceived         Boolean   @default(false)
+  quoteSent             Boolean   @default(false)
+  poReceived            Boolean   @default(false)
+
+  internalNotes         String?
+  isPriorityCustomer    Boolean?
+
+  @@map("events")
+}
+
+
+model Company {
+  id                   String   @id @map("_id") @default(auto()) @db.ObjectId
+  companyNumber        String   @unique
+  companyName          String
+  contactName          String?
+  email                String?
+  status               String?
+  firstMailDate        String?  // Stored as string (e.g., "11.07" or "15.07.2024")
+  secondMailDate       String?
+  notes                String?
+  onBoard              Boolean
+  location             String?
+  salesContact         String?
+  phone                String?
+  potentialAmount      String?  // Stored as string (e.g., "R40,000")
+  previousBusinessDate String?
+
+  @@map("companies")
+}
