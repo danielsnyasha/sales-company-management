@@ -60,7 +60,7 @@ import { Label } from "@/components/ui/label"
 import { MoreHorizontal } from "lucide-react"
 
 // ----- Type Definitions -----
-// Adjust these fields exactly to match your Prisma Event model.
+// These types should exactly match your Prisma Event model.
 interface Event {
   id: string
   eventType: "CGI" | "QUOTE" | "ORDER"
@@ -77,7 +77,7 @@ interface Event {
   status: string
   notes?: string | null
   leadTime?: number | null
-  companyName: string
+  companyName?: string
   customerName: string
   productName?: string | null
   quantity?: number | null
@@ -92,6 +92,7 @@ interface Event {
   isPriorityCustomer?: boolean | null
   poNumber?: string | null
   customerQuoteNumber?: string | null
+  quoteNumber: string
   quoteReceived: boolean
   quoteSent: boolean
   poReceived: boolean
@@ -101,6 +102,11 @@ interface Event {
 
 const PAGE_SIZE = 15
 
+// Helper to truncate long status strings.
+function truncateStatus(s: string): string {
+  return s.length > 11 ? s.substring(0, 11) + "..." : s
+}
+
 export default function EventsPage() {
   const router = useRouter()
 
@@ -109,9 +115,11 @@ export default function EventsPage() {
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string>("")
 
-  // Search filter states
-  const [companyFilter, setCompanyFilter] = useState("")
-  const [contactFilter, setContactFilter] = useState("")
+  // Filter states: By Customer, Quote Number, Status, and Date
+  const [customerFilter, setCustomerFilter] = useState("")
+  const [quoteNumberFilter, setQuoteNumberFilter] = useState("")
+  const [statusFilter, setStatusFilter] = useState("")
+  const [selectedFilterDate, setSelectedFilterDate] = useState<Date | null>(null)
 
   // Dialog states for actions
   const [viewDialogOpen, setViewDialogOpen] = useState(false)
@@ -124,7 +132,7 @@ export default function EventsPage() {
   const [editStep, setEditStep] = useState(1)
   const [editForm, setEditForm] = useState<Partial<Event>>({})
 
-  // ------------- Fetch All Events -------------
+  // ------------- Fetch Events -------------
   useEffect(() => {
     async function fetchEvents() {
       setLoading(true)
@@ -145,41 +153,73 @@ export default function EventsPage() {
   // ------------- Filtering -------------
   const filteredEvents = useMemo(() => {
     return events.filter(evt => {
-      const cmp = (evt.companyName ?? "").toLowerCase()
-      const cont = (evt.contactPerson ?? "").toLowerCase()
-      const companyMatches = companyFilter.trim() ? cmp.includes(companyFilter.toLowerCase()) : true
-      const contactMatches = contactFilter.trim() ? cont.includes(contactFilter.toLowerCase()) : true
-      return companyMatches && contactMatches
+      const customerMatches = customerFilter.trim()
+        ? (evt.customerName ?? "").toLowerCase().includes(customerFilter.toLowerCase())
+        : true
+      const quoteMatches = quoteNumberFilter.trim()
+        ? (evt.quoteNumber || "").toLowerCase().includes(quoteNumberFilter.toLowerCase())
+        : true
+      const statusMatches = statusFilter.trim()
+        ? evt.status.toLowerCase().includes(statusFilter.toLowerCase())
+        : true
+      const dateMatches = selectedFilterDate
+        ? new Date(evt.date).toDateString() === selectedFilterDate.toDateString()
+        : true
+      return customerMatches && quoteMatches && statusMatches && dateMatches
     })
-  }, [events, companyFilter, contactFilter])
+  }, [events, customerFilter, quoteNumberFilter, statusFilter, selectedFilterDate])
 
   // ------------- Table Columns -------------
   const columns = useMemo<ColumnDef<Event>[]>(
     () => [
-      // Display only "Customer" instead of "Company"
       { accessorKey: "customerName", header: "Customer" },
-      // New column: Quote Received (non‑editable; shows a check mark if true)
       {
-        id: "quoteReceived",
-        header: "Quote Received",
-        cell: ({ row }) => (row.original.quoteReceived ? "✔️" : ""),
-      },
-      // New column: Quote Number from customerQuoteNumber field
-      {
-        accessorKey: "customerQuoteNumber",
+        accessorKey: "quoteNumber",
         header: "Quote Number",
         cell: ({ getValue }) => getValue() || "-",
       },
-      { accessorKey: "status", header: "Status" },
+      {
+        accessorKey: "salesRepresentative",
+        header: "Sales Rep",
+        cell: ({ getValue }) => getValue() || "-",
+      },
+      {
+        accessorKey: "status",
+        header: "Status",
+        cell: ({ getValue }) => truncateStatus(getValue() as string),
+      },
       {
         accessorKey: "date",
         header: "Date",
         cell: ({ getValue }) => new Date(getValue() as string).toLocaleDateString(),
       },
       {
-        accessorKey: "updatedAt",
-        header: "Last Update",
-        cell: ({ getValue }) => new Date(getValue() as string).toLocaleString(),
+        accessorKey: "poNumber",
+        header: "PO Number",
+        cell: ({ getValue }) => getValue() || "-",
+      },
+      {
+        accessorKey: "price",
+        header: "Price",
+        cell: ({ getValue }) => {
+          const p = getValue() as number
+          return p ? `R${p.toFixed(2)}` : "-"
+        },
+      },
+      {
+        accessorKey: "priority",
+        header: "Priority",
+        cell: ({ getValue }) => getValue() || "-",
+      },
+      {
+        id: "quoteSentIndicator",
+        header: "Quote Sent",
+        cell: ({ row }) =>
+          row.original.quoteSent ? (
+            <span className="text-green-600">✔️</span>
+          ) : (
+            <span className="text-red-600">❌</span>
+          ),
       },
       {
         id: "actions",
@@ -401,7 +441,9 @@ export default function EventsPage() {
             </div>
           </div>
           <div className="flex justify-end gap-4">
-            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
+              Cancel
+            </Button>
             <Button onClick={() => setEditStep(2)}>Next</Button>
           </div>
         </div>
@@ -473,6 +515,16 @@ export default function EventsPage() {
                 className="mt-1"
               />
             </div>
+            <div>
+              <Label>Quote Number</Label>
+              <Input
+                value={editForm.quoteNumber || ""}
+                onChange={(e) =>
+                  setEditForm(prev => ({ ...prev, quoteNumber: e.target.value }))
+                }
+                className="mt-1"
+              />
+            </div>
             <div className="col-span-2">
               <Label>Notes</Label>
               <Input
@@ -495,7 +547,9 @@ export default function EventsPage() {
             </div>
           </div>
           <div className="flex justify-between">
-            <Button variant="outline" onClick={() => setEditStep(1)}>Back</Button>
+            <Button variant="outline" onClick={() => setEditStep(1)}>
+              Back
+            </Button>
             <Button onClick={() => setEditStep(3)}>Next</Button>
           </div>
         </div>
@@ -698,34 +752,49 @@ export default function EventsPage() {
         </div>
       )
     }
-  }
+  } // <-- This is the missing closing curly brace for renderEditStep
 
   return (
     <div className="p-6 space-y-6">
       <ToastContainer />
       <h1 className="text-3xl font-bold mb-6">Events Management</h1>
 
-      {/* Two Search Boxes */}
+      {/* Four Search/Filter Inputs */}
       <div className="flex flex-col sm:flex-row gap-4">
         <Input
           placeholder="Search by Customer..."
-          value={companyFilter}
-          onChange={(e) => setCompanyFilter(e.target.value)}
+          value={customerFilter}
+          onChange={(e) => setCustomerFilter(e.target.value)}
           className="max-w-sm"
         />
         <Input
-          placeholder="Search by Contact Person..."
-          value={contactFilter}
-          onChange={(e) => setContactFilter(e.target.value)}
+          placeholder="Search by Quote Number..."
+          value={quoteNumberFilter}
+          onChange={(e) => setQuoteNumberFilter(e.target.value)}
           className="max-w-sm"
         />
+        <Input
+          placeholder="Search by Status..."
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="max-w-sm"
+        />
+        <div className="max-w-sm">
+          <DatePicker
+            selected={selectedFilterDate}
+            onChange={(date: Date | null) => setSelectedFilterDate(date)}
+            dateFormat="yyyy-MM-dd"
+            placeholderText="Filter by Date"
+            className="w-full border border-gray-300 rounded p-2"
+          />
+        </div>
       </div>
 
       {error && <p className="text-red-500">Error: {error}</p>}
       {loading ? (
         <p>Loading events...</p>
       ) : (
-        <div className="rounded-md border">
+        <div className="overflow-x-auto rounded-md border">
           <Table>
             <TableHeader>
               {table.getHeaderGroups().map(headerGroup => (
@@ -797,16 +866,38 @@ export default function EventsPage() {
           </DialogHeader>
           {selectedEvent && (
             <div className="space-y-4 mt-4 text-sm">
-              <p><strong>Customer:</strong> {selectedEvent.customerName}</p>
-              <p><strong>Quote Received:</strong> {selectedEvent.quoteReceived ? "Yes" : "No"}</p>
               <p>
-                <strong>Quote Number:</strong> {selectedEvent.customerQuoteNumber || "-"}
+                <strong>Customer:</strong> {selectedEvent.customerName}
               </p>
-              <p><strong>Date:</strong> {new Date(selectedEvent.date).toLocaleString()}</p>
-              <p><strong>Status:</strong> {selectedEvent.status}</p>
-              <p><strong>Contact:</strong> {selectedEvent.contactPerson}</p>
-              <p><strong>Phone:</strong> {selectedEvent.phone}</p>
-              {/* Render additional fields as required */}
+              <p>
+                <strong>Quote Number:</strong> {selectedEvent.quoteNumber || "-"}
+              </p>
+              <p>
+                <strong>Status:</strong> {selectedEvent.status}
+              </p>
+              <p>
+                <strong>Date:</strong> {new Date(selectedEvent.date).toLocaleString()}
+              </p>
+              <p>
+                <strong>Sales Representative:</strong>{" "}
+                {selectedEvent.salesRepresentative || "-"}
+              </p>
+              <p>
+                <strong>Contact:</strong> {selectedEvent.contactPerson}
+              </p>
+              <p>
+                <strong>Phone:</strong> {selectedEvent.phone}
+              </p>
+              <p>
+                <strong>PO Number:</strong> {selectedEvent.poNumber || "-"}
+              </p>
+              <p>
+                <strong>Price:</strong>{" "}
+                {selectedEvent.price ? `R${selectedEvent.price.toFixed(2)}` : "-"}
+              </p>
+              <p>
+                <strong>Priority:</strong> {selectedEvent.priority || "-"}
+              </p>
             </div>
           )}
           <DialogFooter>

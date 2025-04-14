@@ -1,15 +1,76 @@
-// app/api/events/route.ts
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { parseISO } from "date-fns";
 
-// GET: Fetch all events
-export async function GET() {
+// GET: Fetch events with optional period & date filtering
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const period = searchParams.get("period");
+    const dateParam = searchParams.get("date");
+
+    let baseDate: Date | null = null;
+    if (dateParam) {
+      baseDate = parseISO(dateParam);
+    }
+
+    let startDate: Date | null = null;
+    let endDate: Date | null = null;
+
+    // Calculate start & end of the requested period, if applicable:
+    if (baseDate && period) {
+      switch (period) {
+        case "week": {
+          // example: Sunday-based
+          const dayOfWeek = baseDate.getDay(); // 0=Sun,1=Mon,...
+          startDate = new Date(baseDate);
+          startDate.setDate(baseDate.getDate() - dayOfWeek);
+          startDate.setHours(0, 0, 0, 0);
+
+          endDate = new Date(startDate);
+          endDate.setDate(startDate.getDate() + 6);
+          endDate.setHours(23, 59, 59, 999);
+          break;
+        }
+        case "month": {
+          startDate = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
+          endDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 0, 23, 59, 59, 999);
+          break;
+        }
+        case "quarter": {
+          const quarter = Math.floor(baseDate.getMonth() / 3); // 0=Q1,1=Q2,2=Q3,3=Q4
+          startDate = new Date(baseDate.getFullYear(), quarter * 3, 1);
+          endDate = new Date(baseDate.getFullYear(), quarter * 3 + 3, 0, 23, 59, 59, 999);
+          break;
+        }
+        case "year": {
+          startDate = new Date(baseDate.getFullYear(), 0, 1);
+          endDate = new Date(baseDate.getFullYear(), 11, 31, 23, 59, 59, 999);
+          break;
+        }
+        default:
+          // If an unknown period is passed, do nothing special.
+          break;
+      }
+    }
+
+    // Build your Prisma "where" clause to filter by date if we have a range:
+    const whereClause: any = {};
+    if (startDate && endDate) {
+      whereClause.date = {
+        gte: startDate,
+        lte: endDate,
+      };
+    }
+
+    // Query the database with any needed date filter
     const events = await prisma.event.findMany({
+      where: whereClause,
       orderBy: {
         createdAt: "desc",
       },
     });
+
     return NextResponse.json(events);
   } catch (error: any) {
     console.error("Error fetching events:", error);
@@ -25,8 +86,6 @@ export async function PATCH(request: Request) {
       throw new Error("Event ID is required for update.");
     }
 
-    // Convert data types if necessary. Here we assume the client sends proper types.
-    // (You might add additional type conversions/validations here.)
     const updatedEvent = await prisma.event.update({
       where: { id },
       data: {
@@ -45,6 +104,7 @@ export async function PATCH(request: Request) {
         customerQuoteNumber: data.customerQuoteNumber,
         poReceived: Boolean(data.poReceived),
         poNumber: data.poNumber,
+        quoteNumber: data.quoteNumber,
         leadTime: data.leadTime !== undefined ? Number(data.leadTime) : undefined,
         deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : undefined,
         quoteReceivedAt: data.quoteReceivedAt ? new Date(data.quoteReceivedAt) : undefined,

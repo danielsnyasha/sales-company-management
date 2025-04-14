@@ -24,7 +24,7 @@ export default function DashboardHeader() {
         <Link href="/team">Team</Link>
         <Link href="/activities">Events</Link>
         <Link href="/add-customer">Post</Link>
-        <Link href="#">Reports</Link>
+        <Link href="/reports">Reports</Link>
         <Link href="#">Calendar</Link>
         <Link href="#">Gallery</Link>
 
