@@ -36,7 +36,7 @@ import { Check, ChevronsUpDown, User, Calendar, Briefcase, Phone, Award } from "
 import { cn } from "@/lib/utils"
 
 // ----- CONSTANTS & TYPES -----
-const SALES_REPS = ["Shaun", "Candice", "Richard", "Clare"]
+const SALES_REPS = ["Shaun", "Candice", "Richard", "Clare", "LCVSSC"]
 const STATUS_OPTIONS = [
   "Awaiting Feedback",
   "Meeting to be scheduled",

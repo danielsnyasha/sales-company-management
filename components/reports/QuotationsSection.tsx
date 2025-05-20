@@ -32,11 +32,12 @@ import {
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
-// Register Chart.js components
+// Register Chart.js components once
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend);
 
-// ----- CONSTANTS & TYPES -----
-
+/**
+ * PERIOD & FILTERING
+ */
 const PERIOD_OPTIONS = ["week", "month", "quarter", "year"] as const;
 type Period = typeof PERIOD_OPTIONS[number];
 
@@ -47,12 +48,14 @@ const EXCLUDED_STATUSES = [
   "cancelled",
 ];
 
-// Helper: Determine if eventDate falls within the same period as refDate.
+// For Sunday-based weeks
 function isWithinPeriod(eventDate: Date, refDate: Date, period: Period): boolean {
   switch (period) {
     case "week": {
+      // Sunday-based
+      const dayOfWeek = refDate.getDay(); // 0=Sun
       const startOfWeek = new Date(refDate);
-      startOfWeek.setDate(refDate.getDate() - refDate.getDay());
+      startOfWeek.setDate(refDate.getDate() - dayOfWeek);
       const endOfWeek = new Date(startOfWeek);
       endOfWeek.setDate(startOfWeek.getDate() + 6);
       return eventDate >= startOfWeek && eventDate <= endOfWeek;
@@ -63,18 +66,66 @@ function isWithinPeriod(eventDate: Date, refDate: Date, period: Period): boolean
         eventDate.getMonth() === refDate.getMonth()
       );
     case "quarter": {
-      const quarter = Math.floor(refDate.getMonth() / 3);
-      const eventQuarter = Math.floor(eventDate.getMonth() / 3);
-      return eventDate.getFullYear() === refDate.getFullYear() && eventQuarter === quarter;
+      const evtQuarter = Math.floor(eventDate.getMonth() / 3);
+      const refQuarter = Math.floor(refDate.getMonth() / 3);
+      return eventDate.getFullYear() === refDate.getFullYear() && evtQuarter === refQuarter;
     }
     case "year":
       return eventDate.getFullYear() === refDate.getFullYear();
     default:
-      return false;
+      return true;
   }
 }
 
-// Type definition matching your Prisma Event model.
+/**
+ * Return a user-friendly label for the chosen date & period
+ * If no date => "All Open Quotations"
+ */
+function getPeriodLabel(filterDate: Date | null, period: Period): string {
+  if (!filterDate) {
+    return "All Open Quotations";
+  }
+
+  switch (period) {
+    case "week": {
+      // Sunday-based
+      const dayOfWeek = filterDate.getDay();
+      const startOfWeek = new Date(filterDate);
+      startOfWeek.setDate(filterDate.getDate() - dayOfWeek);
+      const endOfWeek = new Date(startOfWeek);
+      endOfWeek.setDate(startOfWeek.getDate() + 6);
+
+      const startStr = startOfWeek.toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+      });
+      const endStr = endOfWeek.toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+      });
+      return `Week: ${startStr} - ${endStr}`;
+    }
+    case "month":
+      return `Month: ${filterDate.toLocaleDateString("en-GB", {
+        month: "long",
+        year: "numeric",
+      })}`;
+    case "quarter": {
+      const quarter = Math.floor(filterDate.getMonth() / 3) + 1;
+      return `Quarter: Q${quarter} ${filterDate.getFullYear()}`;
+    }
+    case "year":
+      return `Year: ${filterDate.getFullYear()}`;
+    default:
+      return "All Open Quotations";
+  }
+}
+
+/**
+ * QUOTATIONS EVENT MODEL
+ */
 interface Event {
   id: string;
   eventType: "CGI" | "QUOTE" | "ORDER";
@@ -114,28 +165,30 @@ interface Event {
   updatedAt: string;
 }
 
+/**
+ * DEFAULT EXPORT: QuotationsReportPage
+ */
 export default function QuotationsReportPage() {
-  // State to hold all events
   const [events, setEvents] = useState<Event[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string>("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  // Filter states
+  // Filters
   const [selectedPeriod, setSelectedPeriod] = useState<Period>("week");
   const [filterDate, setFilterDate] = useState<Date | null>(null);
   const [customerFilter, setCustomerFilter] = useState("");
   const [quoteNumberFilter, setQuoteNumberFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
 
-  // For inline update of status: a mapping from event id to new status value.
+  // Partial status updates: local memory
   const [statusUpdates, setStatusUpdates] = useState<Record<string, string>>({});
 
-  // Ref for the report container (for PDF download)
+  // For PDF
   const reportRef = useRef<HTMLDivElement>(null);
 
-  // Fetch events from the backend when mounted
+  // ----- Fetch events
   useEffect(() => {
-    async function fetchEvents() {
+    async function fetchData() {
       setLoading(true);
       try {
         const res = await fetch("/api/events");
@@ -148,49 +201,61 @@ export default function QuotationsReportPage() {
         setLoading(false);
       }
     }
-    fetchEvents();
+    fetchData();
   }, []);
 
-  // Filter active quotations based on conditions:
-  // - quoteSent is true
-  // - Status (lowercase) is not in EXCLUDED_STATUSES
-  // - And then additional filters by customerFilter, quoteNumberFilter, statusFilter and filterDate.
+  // ----- Active quotations
   const activeQuotations = useMemo(() => {
     return events.filter((evt) => {
+      // Must have quoteSent == true
       if (!evt.quoteSent) return false;
+      // Must not be in excluded statuses
       if (EXCLUDED_STATUSES.includes(evt.status.toLowerCase())) return false;
-      const customerMatches = customerFilter.trim()
-        ? (evt.customerName ?? "").toLowerCase().includes(customerFilter.toLowerCase())
+
+      // Text filters
+      const cMatches = customerFilter.trim()
+        ? evt.customerName.toLowerCase().includes(customerFilter.toLowerCase())
         : true;
-      const quoteMatches = quoteNumberFilter.trim()
+      const qMatches = quoteNumberFilter.trim()
         ? (evt.quoteNumber || "").toLowerCase().includes(quoteNumberFilter.toLowerCase())
         : true;
-      const statusMatches = statusFilter.trim()
+      const sMatches = statusFilter.trim()
         ? evt.status.toLowerCase().includes(statusFilter.toLowerCase())
         : true;
-      const dateMatches = filterDate
-        ? new Date(evt.date).toDateString() === filterDate.toDateString()
-        : true;
-      return customerMatches && quoteMatches && statusMatches && dateMatches;
-    });
-  }, [events, customerFilter, quoteNumberFilter, statusFilter, filterDate]);
 
-  // Compute total quotation value
+      if (!filterDate) {
+        // no date => skip time-based filtering
+        return cMatches && qMatches && sMatches;
+      }
+
+      const evtDate = new Date(evt.date);
+      const inPeriod = isWithinPeriod(evtDate, filterDate, selectedPeriod);
+      return cMatches && qMatches && sMatches && inPeriod;
+    });
+  }, [
+    events,
+    customerFilter,
+    quoteNumberFilter,
+    statusFilter,
+    filterDate,
+    selectedPeriod,
+  ]);
+
+  // Summaries (Active only)
   const totalQuotationValue = useMemo(() => {
-    return activeQuotations.reduce((sum, evt) => sum + (evt.price || 0), 0);
+    return activeQuotations.reduce((sum, e) => sum + (e.price || 0), 0);
   }, [activeQuotations]);
 
-  // Group totals by sales representative
   const totalsBySalesRep = useMemo(() => {
     const groups: Record<string, number> = {};
-    activeQuotations.forEach((evt) => {
+    for (const evt of activeQuotations) {
       const rep = evt.salesRepresentative || "Unknown";
       groups[rep] = (groups[rep] || 0) + (evt.price || 0);
-    });
+    }
     return groups;
   }, [activeQuotations]);
 
-  // Prepare data for Bar Chart (with a fixed height)
+  // Charts for Active
   const barChartData = useMemo(() => {
     const labels = Object.keys(totalsBySalesRep);
     const data = labels.map((label) => totalsBySalesRep[label] || 0);
@@ -206,7 +271,6 @@ export default function QuotationsReportPage() {
     };
   }, [totalsBySalesRep]);
 
-  // Prepare data for Pie Chart
   const pieChartData = useMemo(() => {
     const labels = Object.keys(totalsBySalesRep);
     const data = labels.map((label) => totalsBySalesRep[label] || 0);
@@ -228,35 +292,79 @@ export default function QuotationsReportPage() {
     };
   }, [totalsBySalesRep]);
 
-  // Format total as ZAR currency
+  // Additional: All quotations in period
+  const allQuotationsInPeriod = useMemo(() => {
+    // "All quotes whether closed or not" => quoteSent == true
+    // ignoring EXCLUDED_STATUSES
+    return events.filter((evt) => {
+      if (!evt.quoteSent) return false;
+      if (!filterDate) return true;
+      const d = new Date(evt.date);
+      return isWithinPeriod(d, filterDate, selectedPeriod);
+    });
+  }, [events, filterDate, selectedPeriod]);
+
+  // Group them by status
+  const allQuotesByStatusCount = useMemo(() => {
+    const groups: Record<string, number> = {};
+    for (const evt of allQuotationsInPeriod) {
+      const st = evt.status.toLowerCase() || "unknown";
+      groups[st] = (groups[st] || 0) + 1;
+    }
+    return groups;
+  }, [allQuotationsInPeriod]);
+
+  const allQuotesByStatusChartData = useMemo(() => {
+    const labels = Object.keys(allQuotesByStatusCount);
+    const data = labels.map((label) => allQuotesByStatusCount[label]);
+    return {
+      labels,
+      datasets: [
+        {
+          label: "Number of Quotes",
+          data,
+          backgroundColor: "rgba(255, 99, 132, 0.6)",
+        },
+      ],
+    };
+  }, [allQuotesByStatusCount]);
+
   const formattedTotal = new Intl.NumberFormat("en-ZA", {
     style: "currency",
     currency: "ZAR",
   }).format(totalQuotationValue);
 
-  // Handler for inline status update (from dropdown in table)
-  async function handleStatusChange(eventId: string, newStatus: string) {
+  // Period label for green text
+  const periodLabel = useMemo(() => {
+    return getPeriodLabel(filterDate, selectedPeriod);
+  }, [filterDate, selectedPeriod]);
+
+  // Only patch "status" in the backend
+  async function handleStatusChange(evtId: string, newStatus: string) {
     try {
       const res = await fetch("/api/events", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: eventId, data: { status: newStatus } }),
+        body: JSON.stringify({ id: evtId, data: { status: newStatus } }),
       });
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error || "Failed to update status");
       }
       const updated = await res.json();
+
+      // Locally only override status
       setEvents((prev) =>
-        prev.map((evt) => (evt.id === eventId ? updated : evt))
+        prev.map((evt) => (evt.id === evtId ? { ...evt, status: updated.status } : evt))
       );
+
       toast.success("Status updated successfully!");
-    } catch (err: any) {
-      toast.error(err.message || "Error updating status.");
+    } catch (error: any) {
+      toast.error(error.message || "Error updating status");
     }
   }
 
-  // Handler to download the report as a PDF
+  // PDF
   async function handleDownloadPDF() {
     if (!reportRef.current) return;
     try {
@@ -273,18 +381,20 @@ export default function QuotationsReportPage() {
   }
 
   return (
-    <div className="p-6 space-y-6 bg-white rounded-md shadow" ref={reportRef}>
+    <div className="p-6 space-y-8 bg-white rounded-md shadow max-w-screen-xl mx-auto" ref={reportRef}>
       <ToastContainer />
-      <h1 className="text-2xl font-bold mb-4">Quotations Report</h1>
+      <h1 className="text-3xl font-bold mb-4">Quotations Report</h1>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-4">
+      <div className="flex flex-wrap items-end gap-4">
+        {/* Period */}
         <div className="w-40">
+          <Label className="mb-1 text-gray-700">Period</Label>
           <Select
             value={selectedPeriod}
             onValueChange={(val) => setSelectedPeriod(val as Period)}
           >
-            <SelectTrigger>
+            <SelectTrigger className="w-full">
               <SelectValue placeholder="Period" />
             </SelectTrigger>
             <SelectContent>
@@ -296,62 +406,84 @@ export default function QuotationsReportPage() {
             </SelectContent>
           </Select>
         </div>
+
+        {/* Filter Date */}
         <div className="w-40">
+          <Label className="mb-1 text-gray-700">Filter Date</Label>
           <DatePicker
             selected={filterDate}
             onChange={(date: Date | null) => setFilterDate(date)}
-            dateFormat="yyyy-MM-dd"
-            placeholderText="Filter by Date"
+            dateFormat="dd MMMM yyyy"
+            placeholderText="(optional)"
             className="w-full border border-gray-300 rounded p-2"
           />
         </div>
-        <Input
-          placeholder="Search by Customer..."
-          value={customerFilter}
-          onChange={(e) => setCustomerFilter(e.target.value)}
-          className="w-48"
-        />
-        <Input
-          placeholder="Search by Quote Number..."
-          value={quoteNumberFilter}
-          onChange={(e) => setQuoteNumberFilter(e.target.value)}
-          className="w-48"
-        />
-        <Input
-          placeholder="Search by Status..."
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="w-48"
-        />
-        <Button variant="outline" onClick={handleDownloadPDF}>
+
+        {/* Customer Filter */}
+        <div className="w-48">
+          <Label className="mb-1 text-gray-700">Customer</Label>
+          <Input
+            placeholder="Search by Customer"
+            value={customerFilter}
+            onChange={(e) => setCustomerFilter(e.target.value)}
+          />
+        </div>
+
+        {/* Quote Number */}
+        <div className="w-48">
+          <Label className="mb-1 text-gray-700">Quote #</Label>
+          <Input
+            placeholder="Search by Quote #"
+            value={quoteNumberFilter}
+            onChange={(e) => setQuoteNumberFilter(e.target.value)}
+          />
+        </div>
+
+        {/* Status Filter */}
+        <div className="w-48">
+          <Label className="mb-1 text-gray-700">Status</Label>
+          <Input
+            placeholder="Search by Status"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          />
+        </div>
+
+        <Button variant="outline" className="h-10" onClick={handleDownloadPDF}>
           Download PDF
         </Button>
       </div>
 
+      {/* Period label in green */}
+      <p className="text-sm font-medium text-green-700">{periodLabel}</p>
+
       {/* Summary Card */}
-      <div className="flex items-center justify-between bg-gray-200 rounded-lg p-4">
+      <div className="bg-gray-100 rounded-lg p-4 flex items-center justify-between">
         <div>
           <h2 className="text-sm font-medium text-gray-700">
-            Total Quotations Value
+            Total Quotations Value (Active)
           </h2>
           <p className="text-3xl font-bold text-gray-900">{formattedTotal}</p>
         </div>
         <img
           src="/flags/circle.png"
-          alt="South Africa Flag"
+          alt="South Africa"
           className="w-8 h-8 object-contain"
         />
       </div>
 
-      {/* Charts Section */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Bar Chart with fixed height */}
-        <div className="bg-white rounded-lg shadow p-4" style={{ height: "300px" }}>
+      {/* Charts (Active) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Bar */}
+        <div className="bg-white rounded-lg shadow p-4" style={{ height: "350px" }}>
           <h2 className="text-lg font-semibold mb-2">
-            Totals by Sales Rep (Bar Chart)
+            Totals by Sales Rep (Active Quotations)
           </h2>
           <Bar
-            data={barChartData}
+            data={{
+              labels: barChartData.labels,
+              datasets: barChartData.datasets,
+            }}
             options={{
               responsive: true,
               maintainAspectRatio: false,
@@ -359,10 +491,10 @@ export default function QuotationsReportPage() {
             }}
           />
         </div>
-        {/* Pie Chart with fixed height */}
-        <div className="bg-white rounded-lg shadow p-4" style={{ height: "300px" }}>
+        {/* Pie */}
+        <div className="bg-white rounded-lg shadow p-4" style={{ height: "350px" }}>
           <h2 className="text-lg font-semibold mb-2">
-            Distribution by Sales Rep (Pie Chart)
+            Distribution by Sales Rep (Active Quotations)
           </h2>
           <Pie
             data={pieChartData}
@@ -373,6 +505,21 @@ export default function QuotationsReportPage() {
             }}
           />
         </div>
+      </div>
+
+      {/* Additional: all quotations (even closed) in period, grouped by status */}
+      <div className="bg-white rounded-lg shadow p-4" style={{ height: "300px" }}>
+        <h2 className="text-lg font-semibold mb-2">
+          All Quotations by Status (Bar Chart)
+        </h2>
+        <Bar
+          data={allQuotesByStatusChartData}
+          options={{
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: "top" } },
+          }}
+        />
       </div>
 
       {/* Data Table: Active Quotations */}
@@ -395,12 +542,14 @@ export default function QuotationsReportPage() {
                 <tr key={evt.id} className="border-t">
                   <td className="px-4 py-2">{evt.customerName}</td>
                   <td className="px-4 py-2">{evt.quoteNumber || "-"}</td>
-                  <td className="px-4 py-2">
-                    {evt.salesRepresentative || "-"}
-                  </td>
+                  <td className="px-4 py-2">{evt.salesRepresentative || "-"}</td>
                   <td className="px-4 py-2">{evt.status}</td>
                   <td className="px-4 py-2">
-                    {new Date(evt.date).toLocaleDateString()}
+                    {new Date(evt.date).toLocaleDateString("en-GB", {
+                      day: "2-digit",
+                      month: "long",
+                      year: "numeric",
+                    })}
                   </td>
                   <td className="px-4 py-2">
                     {evt.price ? `R${evt.price.toFixed(2)}` : "-"}
@@ -409,9 +558,7 @@ export default function QuotationsReportPage() {
                     <Select
                       value={statusUpdates[evt.id] || evt.status}
                       onValueChange={(val) => {
-                        // Update local mapping for the changed status.
                         setStatusUpdates((prev) => ({ ...prev, [evt.id]: val }));
-                        // Immediately update backend.
                         handleStatusChange(evt.id, val);
                       }}
                     >
@@ -452,21 +599,23 @@ export default function QuotationsReportPage() {
         </table>
       </div>
 
-      {/* Explanatory Section */}
+      {/* Insights */}
       <div className="mt-8 p-4 bg-gray-50 rounded-lg">
         <h2 className="text-xl font-bold mb-2">Insights</h2>
         <p className="text-sm text-gray-700">
-          <strong>High Priority Customers:</strong> We identify high priority customers based on our internal criteria (e.g. repeat business, large enquiry size, and history of timely payments). They are ranked higher if they show strong purchase intentions.
+          <strong>High Priority Customers:</strong> We identify high priority customers based on repeat
+          business, large enquiry sizes, and strong purchase intentions. They rank higher if they exhibit
+          consistent follow-through.
         </p>
         <p className="text-sm text-gray-700 mt-2">
-          <strong>Top Companies:</strong> Companies are ranked by the total quotation value they represent. The percentage of quotes converted to POs is calculated by comparing the number of quotes that resulted in a purchase order against total quotes sent, multiplied by 100.
+          <strong>Top Companies:</strong> Companies are ranked by the total quotation value. We track the ratio
+          of quotes converting to POs to assess performance.
         </p>
         <p className="text-sm text-gray-700 mt-2">
-          Our reports enable you to quickly see the promising potential in upcoming orders and assess the effectiveness of our quotations strategy.
+          These metrics help us quickly identify areas of potential growth and effectively manage our
+          quotations strategy.
         </p>
       </div>
-
-      <ToastContainer />
     </div>
   );
 }

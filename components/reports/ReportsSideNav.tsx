@@ -15,7 +15,7 @@ interface ReportsSideNavProps {
 }
 
 export default function ReportsSideNav({ activeTab, onTabChange }: ReportsSideNavProps) {
-  // Define your report-specific nav items and icons.
+
   const navItems = [
     { id: "overview", label: "Overview", icon: LayoutDashboard },
     { id: "sales-orders", label: "Sales Orders", icon: ShoppingCart },

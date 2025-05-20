@@ -145,7 +145,7 @@ export default function UltimateDashboardBanner() {
       {
         id: "target",
         title: "Sales Target",
-        subtitle: "6.5M per Quarter",
+        subtitle: "6.5M per Month",
       },
       {
         id: "reps",
