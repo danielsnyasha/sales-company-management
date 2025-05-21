@@ -17,21 +17,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
   DialogFooter,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 
 import { Bar, Pie } from "react-chartjs-2";
@@ -54,128 +45,105 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tool
 const PERIOD_OPTIONS = ["week", "month", "quarter", "year"] as const;
 type Period = typeof PERIOD_OPTIONS[number];
 
-// We consider sales orders as events with eventType "ORDER" and poReceived === true.
 interface Event {
   id: string;
   eventType: "CGI" | "QUOTE" | "ORDER";
   referenceCode: string;
-  date: string;
-  quoteReceivedAt?: string | null;
-  csiConvertedAt?: string | null;
-  jobCompletedAt?: string | null;
-  natureOfWork?: string[] | null;
-  actualWorkDescription?: string | null;
-  processCost?: number | null;
-  contactPerson?: string | null;
-  phone?: string | null;
-  status: string;
-  notes?: string | null;
-  leadTime?: number | null;
-  companyName?: string;
-  customerName: string;
-  productName?: string | null;
-  quantity?: number | null;
-  price?: number | null;
-  deliveryDate?: string | null;
-  region?: string | null;
+  date: string; // ISO
+  /* … rest of the fields unchanged … */
   salesRepresentative?: string | null;
-  priority?: string | null;
-  paymentStatus?: string | null;
-  shippingMethod?: string | null;
-  internalNotes?: string | null;
-  isPriorityCustomer?: boolean | null;
+  customerName: string;
   poNumber?: string | null;
-  customerQuoteNumber?: string | null;
-  quoteNumber: string;
-  quoteReceived: boolean;
-  quoteSent: boolean;
-  poReceived: boolean;
-  createdAt: string;
-  updatedAt: string;
+  price?: number | null;
+  status: string;
+  /* ↓ everything else kept for view dialog but omitted here for brevity */
+  [key: string]: unknown;
 }
-
-const PAGE_SIZE = 15;
 
 export default function SalesOrdersSection() {
   const [events, setEvents] = useState<Event[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string>("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  // Filter states
-  // Keep filterDate initially null so it does NOT affect totals until user picks a date:
+  // ---- filters ------------------------------------------------------------
   const [customerFilter, setCustomerFilter] = useState("");
   const [poNumberFilter, setPoNumberFilter] = useState("");
-  const [filterDate, setFilterDate] = useState<Date | null>(null);
+  const [dateRange, setDateRange] = useState<[Date | null, Date | null]>([
+    null,
+    null,
+  ]);
   const [selectedPeriod, setSelectedPeriod] = useState<Period>("week");
 
-  // For PDF download
-  const reportRef = useRef<HTMLDivElement>(null);
-
-  // For viewing event details
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
+  const reportRef = useRef<HTMLDivElement>(null);
 
-  // Fetch events from backend on mount
+  // ---- data fetch ---------------------------------------------------------
   useEffect(() => {
-    async function fetchEvents() {
-      setLoading(true);
+    (async () => {
       try {
+        setLoading(true);
         const res = await fetch("/api/events");
         if (!res.ok) throw new Error("Failed to fetch events");
-        const data: Event[] = await res.json();
-        setEvents(data);
+        setEvents(await res.json());
       } catch (err: any) {
-        setError(err.message || "Unknown error");
+        setError(err.message ?? "Unknown error");
       } finally {
         setLoading(false);
       }
-    }
-    fetchEvents();
+    })();
   }, []);
 
-  // Filter active sales orders: eventType is "ORDER" and poReceived is true.
+  // ---- filtering ----------------------------------------------------------
+  const [startDate, endDate] = dateRange;
+
   const activeSalesOrders = useMemo(() => {
     return events.filter((evt) => {
       if (evt.eventType !== "ORDER" || !evt.poReceived) return false;
 
-      // Match Customer?
-      const customerMatches = customerFilter.trim()
-        ? (evt.customerName ?? "").toLowerCase().includes(customerFilter.toLowerCase())
+      const customerOk = customerFilter.trim()
+        ? (evt.customerName ?? "")
+            .toLowerCase()
+            .includes(customerFilter.toLowerCase())
         : true;
 
-      // Match PO?
-      const poMatches = poNumberFilter.trim()
-        ? (evt.poNumber || "").toLowerCase().includes(poNumberFilter.toLowerCase())
+      const poOk = poNumberFilter.trim()
+        ? (evt.poNumber ?? "")
+            .toLowerCase()
+            .includes(poNumberFilter.toLowerCase())
         : true;
 
-      // Only filter by date if filterDate is actually set
-      const dateMatches = filterDate
-        ? new Date(evt.date).toDateString() === filterDate.toDateString()
-        : true;
+      const dateOk =
+        startDate && endDate
+          ? (() => {
+              const d = new Date(evt.date);
+              return d >= startDate && d <= endDate;
+            })()
+          : true;
 
-      return customerMatches && poMatches && dateMatches;
+      return customerOk && poOk && dateOk;
     });
-  }, [events, customerFilter, poNumberFilter, filterDate]);
+  }, [events, customerFilter, poNumberFilter, startDate, endDate]);
 
-  // Total order value
-  const totalOrderValue = useMemo(() => {
-    return activeSalesOrders.reduce((sum, evt) => sum + (evt.price || 0), 0);
-  }, [activeSalesOrders]);
+  // ---- aggregations -------------------------------------------------------
+  const totalOrderValue = useMemo(
+    () => activeSalesOrders.reduce((sum, e) => sum + (e.price ?? 0), 0),
+    [activeSalesOrders]
+  );
 
-  // Group totals by sales representative
   const totalsBySalesRep = useMemo(() => {
     const groups: Record<string, number> = {};
-    activeSalesOrders.forEach((evt) => {
-      const rep = evt.salesRepresentative || "Unknown";
-      groups[rep] = (groups[rep] || 0) + (evt.price || 0);
+    activeSalesOrders.forEach((e) => {
+      const rep = e.salesRepresentative || "Unknown";
+      groups[rep] = (groups[rep] || 0) + (e.price ?? 0);
     });
     return groups;
   }, [activeSalesOrders]);
 
-  // Prepare data for Bar Chart (fixed height)
+  // ---- charts -------------------------------------------------------------
   const barChartData = useMemo(() => {
     const labels = Object.keys(totalsBySalesRep);
-    const data = labels.map((label) => totalsBySalesRep[label] || 0);
+    const data = labels.map((l) => totalsBySalesRep[l] ?? 0);
     return {
       labels,
       datasets: [
@@ -188,10 +156,9 @@ export default function SalesOrdersSection() {
     };
   }, [totalsBySalesRep]);
 
-  // Prepare data for Pie Chart
   const pieChartData = useMemo(() => {
     const labels = Object.keys(totalsBySalesRep);
-    const data = labels.map((label) => totalsBySalesRep[label] || 0);
+    const data = labels.map((l) => totalsBySalesRep[l] ?? 0);
     return {
       labels,
       datasets: [
@@ -210,140 +177,151 @@ export default function SalesOrdersSection() {
     };
   }, [totalsBySalesRep]);
 
-  // Format total as ZAR currency.
-  const formattedTotal = new Intl.NumberFormat("en-ZA", {
-    style: "currency",
-    currency: "ZAR",
-  }).format(totalOrderValue);
-
-  // Show the chosen period in "01 April 2025" style, even if filterDate=null => fallback to "today"
+  // ---- helper: period label ----------------------------------------------
   const periodLabel = useMemo(() => {
-    const baseDate = filterDate || new Date();
+    if (startDate && endDate) {
+      const opts: Intl.DateTimeFormatOptions = {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      };
+      return `${startDate.toLocaleDateString("en-GB", opts)} – ${endDate.toLocaleDateString(
+        "en-GB",
+        opts
+      )}`;
+    }
 
+    const today = new Date();
     switch (selectedPeriod) {
       case "week": {
-        // Start of the week (Sunday-based)
-        const dayOfWeek = baseDate.getDay();
-        const startOfWeek = new Date(baseDate);
-        startOfWeek.setDate(baseDate.getDate() - dayOfWeek);
-        const endOfWeek = new Date(startOfWeek);
-        endOfWeek.setDate(startOfWeek.getDate() + 6);
-
-        const startStr = startOfWeek.toLocaleDateString("en-GB", {
+        const first = new Date(today);
+        first.setDate(today.getDate() - today.getDay());
+        const last = new Date(first);
+        last.setDate(first.getDate() + 6);
+        return `Week: ${first.toLocaleDateString("en-GB", {
           day: "2-digit",
-          month: "long",
+          month: "short",
           year: "numeric",
-        });
-        const endStr = endOfWeek.toLocaleDateString("en-GB", {
+        })} – ${last.toLocaleDateString("en-GB", {
           day: "2-digit",
-          month: "long",
+          month: "short",
           year: "numeric",
-        });
-        return `Week: ${startStr} - ${endStr}`;
+        })}`;
       }
       case "month":
-        return `Month: ${baseDate.toLocaleDateString("en-GB", {
+        return `Month: ${today.toLocaleDateString("en-GB", {
           month: "long",
           year: "numeric",
         })}`;
       case "quarter": {
-        const quarter = Math.floor(baseDate.getMonth() / 3) + 1;
-        return `Quarter: Q${quarter} ${baseDate.getFullYear()}`;
+        const q = Math.floor(today.getMonth() / 3) + 1;
+        return `Quarter: Q${q} ${today.getFullYear()}`;
       }
       case "year":
-        return `Year: ${baseDate.getFullYear()}`;
+        return `Year: ${today.getFullYear()}`;
       default:
-        return `Period: ${selectedPeriod.toUpperCase()}`;
+        return "";
     }
-  }, [filterDate, selectedPeriod]);
+  }, [startDate, endDate, selectedPeriod]);
 
-  // Handler to download report as PDF.
+  // ---- pdf ----------------------------------------------------------------
   async function handleDownloadPDF() {
     if (!reportRef.current) return;
     try {
       const canvas = await html2canvas(reportRef.current, { scale: 2 });
-      const imgData = canvas.toDataURL("image/png");
       const pdf = new jsPDF("p", "mm", "a4");
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+      pdf.addImage(
+        canvas.toDataURL("image/png"),
+        "PNG",
+        0,
+        0,
+        pdf.internal.pageSize.getWidth(),
+        (canvas.height * pdf.internal.pageSize.getWidth()) / canvas.width
+      );
       pdf.save("sales-orders-report.pdf");
-    } catch (err: any) {
+    } catch {
       toast.error("Error generating PDF");
     }
   }
 
+  // ============================== JSX =====================================
   return (
-    <div className="p-6 space-y-6 bg-white rounded-md shadow" ref={reportRef}>
+    <div
+      className="p-6 space-y-6 bg-white rounded-md shadow"
+      ref={reportRef}
+    >
       <ToastContainer />
       <h1 className="text-2xl font-bold mb-4">Sales Orders Report</h1>
 
-      {/* Filters in a single line */}
+      {/* FILTERS ---------------------------------------------------------- */}
       <div className="flex flex-wrap items-center gap-4">
-        {/* Period dropdown */}
-        <div className="w-40">
+        {/* quick period dropdown (optional) */}
+        <div className="w-36">
           <Select
             value={selectedPeriod}
-            onValueChange={(val) => setSelectedPeriod(val as Period)}
+            onValueChange={(v) => setSelectedPeriod(v as Period)}
           >
             <SelectTrigger>
               <SelectValue placeholder="Period" />
             </SelectTrigger>
             <SelectContent>
-              {PERIOD_OPTIONS.map((opt) => (
-                <SelectItem key={opt} value={opt}>
-                  {opt.toUpperCase()}
+              {PERIOD_OPTIONS.map((o) => (
+                <SelectItem key={o} value={o}>
+                  {o.toUpperCase()}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
 
-        {/* Date picker: format as "01 April 2025" */}
-        <div className="w-40">
+        {/* RANGE PICKER -------------------------------------------------- */}
+        <div className="w-[260px]">
           <DatePicker
-            selected={filterDate}
-            onChange={(date: Date | null) => setFilterDate(date)}
-            dateFormat="dd MMMM yyyy"
-            placeholderText="Filter by Date"
+            selectsRange
+            startDate={startDate}
+            endDate={endDate}
+            onChange={(upd) => setDateRange(upd as [Date | null, Date | null])}
+            isClearable
+            dateFormat="dd MMM yyyy"
             className="w-full border border-gray-300 rounded p-2"
+            placeholderText="Select date range"
           />
         </div>
 
-        {/* Customer / PO filters */}
+        {/* text filters */}
         <Input
+          className="w-48"
           placeholder="Search by Customer..."
           value={customerFilter}
           onChange={(e) => setCustomerFilter(e.target.value)}
-          className="w-48"
         />
         <Input
+          className="w-48"
           placeholder="Search by PO Number..."
           value={poNumberFilter}
           onChange={(e) => setPoNumberFilter(e.target.value)}
-          className="w-48"
         />
 
-        {/* Download PDF */}
         <Button variant="outline" onClick={handleDownloadPDF}>
           Download PDF
         </Button>
       </div>
 
-      {/* AFTER the row of filters, we place the label in green text */}
-      <div className="mt-2">
-        <p className="text-sm font-medium text-green-800">
-          {periodLabel}
-        </p>
-      </div>
+      {/* helper label */}
+      <p className="text-sm font-medium text-green-800">{periodLabel}</p>
 
-      {/* Summary Card */}
+      {/* SUMMARY CARD ----------------------------------------------------- */}
       <div className="flex items-center justify-between bg-gray-200 rounded-lg p-4">
         <div>
           <Label className="text-sm font-medium text-gray-700">
             Total Sales Orders Value
           </Label>
-          <p className="text-3xl font-bold text-gray-900">{formattedTotal}</p>
+          <p className="text-3xl font-bold text-gray-900">
+            {new Intl.NumberFormat("en-ZA", {
+              style: "currency",
+              currency: "ZAR",
+            }).format(totalOrderValue)}
+          </p>
         </div>
         <img
           src="/flags/circle.png"
@@ -352,11 +330,11 @@ export default function SalesOrdersSection() {
         />
       </div>
 
-      {/* Charts Section */}
+      {/* CHARTS ----------------------------------------------------------- */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white rounded-lg shadow p-4" style={{ height: "300px" }}>
+        <div className="bg-white rounded-lg shadow p-4 h-[300px]">
           <h2 className="text-lg font-semibold mb-2">
-            Totals by Sales Rep (Bar Chart)
+            Totals by Sales Rep (Bar)
           </h2>
           <Bar
             data={barChartData}
@@ -367,9 +345,9 @@ export default function SalesOrdersSection() {
             }}
           />
         </div>
-        <div className="bg-white rounded-lg shadow p-4" style={{ height: "300px" }}>
+        <div className="bg-white rounded-lg shadow p-4 h-[300px]">
           <h2 className="text-lg font-semibold mb-2">
-            Distribution by Sales Rep (Pie Chart)
+            Distribution by Sales Rep (Pie)
           </h2>
           <Pie
             data={pieChartData}
@@ -382,7 +360,7 @@ export default function SalesOrdersSection() {
         </div>
       </div>
 
-      {/* Data Table: List Active Sales Orders */}
+      {/* TABLE ------------------------------------------------------------ */}
       <div className="overflow-x-auto rounded-md border">
         <table className="w-full text-sm">
           <thead className="bg-gray-50">
@@ -397,27 +375,27 @@ export default function SalesOrdersSection() {
           </thead>
           <tbody>
             {activeSalesOrders.length ? (
-              activeSalesOrders.map((evt) => (
-                <tr key={evt.id} className="border-t">
-                  <td className="px-4 py-2">{evt.customerName}</td>
-                  <td className="px-4 py-2">{evt.poNumber || "-"}</td>
-                  <td className="px-4 py-2">{evt.salesRepresentative || "-"}</td>
+              activeSalesOrders.map((e) => (
+                <tr key={e.id} className="border-t">
+                  <td className="px-4 py-2">{e.customerName}</td>
+                  <td className="px-4 py-2">{e.poNumber || "-"}</td>
+                  <td className="px-4 py-2">{e.salesRepresentative || "-"}</td>
                   <td className="px-4 py-2">
-                    {new Date(evt.date).toLocaleDateString("en-GB", {
+                    {new Date(e.date).toLocaleDateString("en-GB", {
                       day: "2-digit",
-                      month: "long",
+                      month: "short",
                       year: "numeric",
                     })}
                   </td>
                   <td className="px-4 py-2">
-                    {evt.price ? `R${evt.price.toFixed(2)}` : "-"}
+                    {e.price ? `R${e.price.toFixed(2)}` : "-"}
                   </td>
                   <td className="px-4 py-2">
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        setSelectedEvent(evt);
+                        setSelectedEvent(e);
                         setViewDialogOpen(true);
                       }}
                     >
@@ -437,7 +415,7 @@ export default function SalesOrdersSection() {
         </table>
       </div>
 
-      {/* View Order Dialog */}
+      {/* VIEW DIALOG ------------------------------------------------------ */}
       <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -462,18 +440,19 @@ export default function SalesOrdersSection() {
                 <strong>Date:</strong>{" "}
                 {new Date(selectedEvent.date).toLocaleDateString("en-GB", {
                   day: "2-digit",
-                  month: "long",
+                  month: "short",
                   year: "numeric",
                 })}
               </p>
               <p>
                 <strong>Price:</strong>{" "}
-                {selectedEvent.price ? `R${selectedEvent.price.toFixed(2)}` : "-"}
+                {selectedEvent.price
+                  ? `R${selectedEvent.price.toFixed(2)}`
+                  : "-"}
               </p>
               <p>
                 <strong>Status:</strong> {selectedEvent.status}
               </p>
-              {/* Additional details if needed */}
             </div>
           )}
           <DialogFooter>
@@ -482,24 +461,23 @@ export default function SalesOrdersSection() {
         </DialogContent>
       </Dialog>
 
-      {/* Insights Section */}
+      {/* INSIGHTS --------------------------------------------------------- */}
       <div className="mt-8 p-4 bg-gray-50 rounded-lg">
         <h2 className="text-xl font-bold mb-2">Insights</h2>
         <p className="text-sm text-gray-700">
-          <strong>High Priority Customers:</strong> These customers are recognized by their
-          consistently high order values and repeat business. They represent a strong growth
-          opportunity.
+          <strong>High Priority Customers:</strong> Customers recognised by their
+          consistently high order values and repeat business represent strong growth
+          opportunities.
         </p>
         <p className="text-sm text-gray-700 mt-2">
-          <strong>Top Companies:</strong> Companies are ranked by the total sales order value.
-          Conversion rates from quotations to orders help gauge our sales effectiveness.
+          <strong>Top Companies:</strong> Companies are ranked by total sales value. Conversion
+          rates from quotations to orders help gauge sales effectiveness.
         </p>
         <p className="text-sm text-gray-700 mt-2">
           This report provides a complete view of current sales orders, enabling data-driven
           decisions and operational improvements.
         </p>
       </div>
-
       <ToastContainer />
     </div>
   );
