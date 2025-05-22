@@ -45,18 +45,54 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tool
 const PERIOD_OPTIONS = ["week", "month", "quarter", "year"] as const;
 type Period = typeof PERIOD_OPTIONS[number];
 
+/* ——————————————————————————————————— HELPER —————————————————————————————————— */
+function getPeriodRange(period: Period, base = new Date()): [Date, Date] {
+  const start = new Date(base);
+  const end = new Date(base);
+
+  switch (period) {
+    case "week": {
+      // Sunday–Saturday of current week
+      const diff = base.getDay(); // 0 (Sun) … 6 (Sat)
+      start.setDate(base.getDate() - diff);
+      end.setDate(start.getDate() + 6);
+      break;
+    }
+    case "month": {
+      start.setDate(1);
+      end.setMonth(start.getMonth() + 1, 0); // day 0 of next month = last day of this month
+      break;
+    }
+    case "quarter": {
+      const qStartMonth = Math.floor(base.getMonth() / 3) * 3; // 0,3,6,9
+      start.setMonth(qStartMonth, 1);
+      end.setMonth(qStartMonth + 3, 0); // last day of quarter
+      break;
+    }
+    case "year": {
+      start.setMonth(0, 1);  // 1 Jan
+      end.setMonth(12, 0);   // 31 Dec
+      break;
+    }
+  }
+  // zero-out the time part for clean comparisons
+  start.setHours(0, 0, 0, 0);
+  end.setHours(23, 59, 59, 999);
+  return [start, end];
+}
+
+/* —————————————————————————————————— COMPONENT ————————————————————————————————— */
 interface Event {
   id: string;
   eventType: "CGI" | "QUOTE" | "ORDER";
   referenceCode: string;
-  date: string; // ISO
-  /* … rest of the fields unchanged … */
+  date: string;
   salesRepresentative?: string | null;
   customerName: string;
   poNumber?: string | null;
   price?: number | null;
   status: string;
-  /* ↓ everything else kept for view dialog but omitted here for brevity */
+  poReceived?: boolean;
   [key: string]: unknown;
 }
 
@@ -65,20 +101,20 @@ export default function SalesOrdersSection() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // ---- filters ------------------------------------------------------------
+  /* ——— filters ——— */
   const [customerFilter, setCustomerFilter] = useState("");
   const [poNumberFilter, setPoNumberFilter] = useState("");
-  const [dateRange, setDateRange] = useState<[Date | null, Date | null]>([
-    null,
-    null,
-  ]);
+  const [dateRange, setDateRange] = useState<[Date | null, Date | null]>(() =>
+    getPeriodRange("week")
+  );
   const [selectedPeriod, setSelectedPeriod] = useState<Period>("week");
 
+  /* dialog + pdf */
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const reportRef = useRef<HTMLDivElement>(null);
 
-  // ---- data fetch ---------------------------------------------------------
+  /* ——— data fetch ——— */
   useEffect(() => {
     (async () => {
       try {
@@ -94,20 +130,26 @@ export default function SalesOrdersSection() {
     })();
   }, []);
 
-  // ---- filtering ----------------------------------------------------------
+  /* ——— quick-select handler ——— */
+  function handlePeriodChange(p: Period) {
+    setSelectedPeriod(p);
+    setDateRange(getPeriodRange(p)); // ← sync the picker & filtering
+  }
+
+  /* ——— filtering ——— */
   const [startDate, endDate] = dateRange;
 
   const activeSalesOrders = useMemo(() => {
     return events.filter((evt) => {
       if (evt.eventType !== "ORDER" || !evt.poReceived) return false;
 
-      const customerOk = customerFilter.trim()
+      const customerOk = customerFilter
         ? (evt.customerName ?? "")
             .toLowerCase()
             .includes(customerFilter.toLowerCase())
         : true;
 
-      const poOk = poNumberFilter.trim()
+      const poOk = poNumberFilter
         ? (evt.poNumber ?? "")
             .toLowerCase()
             .includes(poNumberFilter.toLowerCase())
