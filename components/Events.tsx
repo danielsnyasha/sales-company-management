@@ -31,8 +31,6 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-  DialogClose,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 
 import {
@@ -59,8 +57,16 @@ import "react-datepicker/dist/react-datepicker.css"
 import { Label } from "@/components/ui/label"
 import { MoreHorizontal } from "lucide-react"
 
+// ----- CONSTANTS -----
+const LINE_OF_WORK_OPTIONS = [
+  { label: "Electro Motors", value: "EC" },
+  { label: "Steel Service Center", value: "SSC" },
+  { label: "Structural Mechanical And Plate", value: "SMP" },
+  { label: "Original Equipment Manufacture", value: "OEM" },
+  { label: "Other", value: "Unknown" },
+]
+
 // ----- Type Definitions -----
-// These types should exactly match your Prisma Event model.
 interface Event {
   id: string
   eventType: "CGI" | "QUOTE" | "ORDER"
@@ -98,41 +104,41 @@ interface Event {
   poReceived: boolean
   createdAt: string
   updatedAt: string
+  lineOfWork?: string | null
 }
 
 const PAGE_SIZE = 15
-
-// Helper to truncate long status strings.
-function truncateStatus(s: string): string {
+function truncateStatus(s: string) {
   return s.length > 11 ? s.substring(0, 11) + "..." : s
 }
 
 export default function EventsPage() {
   const router = useRouter()
 
-  // Data states
+  // Data / pagination
   const [events, setEvents] = useState<Event[]>([])
-  const [loading, setLoading] = useState<boolean>(false)
-  const [error, setError] = useState<string>("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: PAGE_SIZE })
 
-  // Filter states: By Customer, Quote Number, Status, and Date
+  // Filters
   const [customerFilter, setCustomerFilter] = useState("")
   const [quoteNumberFilter, setQuoteNumberFilter] = useState("")
   const [statusFilter, setStatusFilter] = useState("")
   const [selectedFilterDate, setSelectedFilterDate] = useState<Date | null>(null)
 
-  // Dialog states for actions
+  // Dialogs
   const [viewDialogOpen, setViewDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null)
   const [pinInput, setPinInput] = useState("")
 
-  // Multi-step edit modal state
+  // Edit wizard
   const [editStep, setEditStep] = useState(1)
   const [editForm, setEditForm] = useState<Partial<Event>>({})
 
-  // ------------- Fetch Events -------------
+  // ---------- Fetch Events ----------
   useEffect(() => {
     async function fetchEvents() {
       setLoading(true)
@@ -150,7 +156,7 @@ export default function EventsPage() {
     fetchEvents()
   }, [])
 
-  // ------------- Filtering -------------
+  // ---------- Filtering ----------
   const filteredEvents = useMemo(() => {
     return events.filter(evt => {
       const customerMatches = customerFilter.trim()
@@ -169,124 +175,83 @@ export default function EventsPage() {
     })
   }, [events, customerFilter, quoteNumberFilter, statusFilter, selectedFilterDate])
 
-  // ------------- Table Columns -------------
-  const columns = useMemo<ColumnDef<Event>[]>(
-    () => [
-      { accessorKey: "customerName", header: "Customer" },
-      {
-        accessorKey: "quoteNumber",
-        header: "Quote Number",
-        cell: ({ getValue }) => getValue() || "-",
+  // ---------- Table Columns ----------
+  const columns = useMemo<ColumnDef<Event>[]>(() => [
+    { accessorKey: "customerName", header: "Customer" },
+    { accessorKey: "quoteNumber", header: "Quote Number", cell: ({ getValue }) => getValue() || "-" },
+    { accessorKey: "salesRepresentative", header: "Sales Rep", cell: ({ getValue }) => getValue() || "-" },
+    { accessorKey: "status", header: "Status", cell: ({ getValue }) => truncateStatus(getValue() as string) },
+    { accessorKey: "date", header: "Date", cell: ({ getValue }) => new Date(getValue() as string).toLocaleDateString() },
+    { accessorKey: "poNumber", header: "PO Number", cell: ({ getValue }) => getValue() || "-" },
+    {
+      accessorKey: "price",
+      header: "Price",
+      cell: ({ getValue }) => {
+        const p = getValue() as number
+        return p ? `R${p.toFixed(2)}` : "-"
       },
-      {
-        accessorKey: "salesRepresentative",
-        header: "Sales Rep",
-        cell: ({ getValue }) => getValue() || "-",
+    },
+    { accessorKey: "priority", header: "Priority", cell: ({ getValue }) => getValue() || "-" },
+    { accessorKey: "lineOfWork", header: "Line of Work", cell: ({ getValue }) => getValue() || "-" },
+    {
+      id: "quoteSentIndicator",
+      header: "Quote Sent",
+      cell: ({ row }) => (row.original.quoteSent ? <span className="text-green-600">✔️</span> : <span className="text-red-600">❌</span>),
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      cell: ({ row }) => {
+        const evt = row.original
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="h-8 w-8 p-0">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => {
+                setSelectedEvent(evt);
+                setTimeout(() => setViewDialogOpen(true), 10);
+              }}>
+                View <DropdownMenuShortcut>⇧V</DropdownMenuShortcut>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => {
+                setSelectedEvent(evt);
+                setEditForm({ ...evt });
+                setEditStep(1);
+                setTimeout(() => setEditDialogOpen(true), 10);
+              }}>
+                Edit <DropdownMenuShortcut>⇧E</DropdownMenuShortcut>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => {
+                setSelectedEvent(evt);
+                setTimeout(() => setDeleteDialogOpen(true), 10);
+              }}>
+                Delete <DropdownMenuShortcut>⌘⌫</DropdownMenuShortcut>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )
       },
-      {
-        accessorKey: "status",
-        header: "Status",
-        cell: ({ getValue }) => truncateStatus(getValue() as string),
-      },
-      {
-        accessorKey: "date",
-        header: "Date",
-        cell: ({ getValue }) => new Date(getValue() as string).toLocaleDateString(),
-      },
-      {
-        accessorKey: "poNumber",
-        header: "PO Number",
-        cell: ({ getValue }) => getValue() || "-",
-      },
-      {
-        accessorKey: "price",
-        header: "Price",
-        cell: ({ getValue }) => {
-          const p = getValue() as number
-          return p ? `R${p.toFixed(2)}` : "-"
-        },
-      },
-      {
-        accessorKey: "priority",
-        header: "Priority",
-        cell: ({ getValue }) => getValue() || "-",
-      },
-      {
-        id: "quoteSentIndicator",
-        header: "Quote Sent",
-        cell: ({ row }) =>
-          row.original.quoteSent ? (
-            <span className="text-green-600">✔️</span>
-          ) : (
-            <span className="text-red-600">❌</span>
-          ),
-      },
-      {
-        id: "actions",
-        header: "Actions",
-        cell: ({ row }) => {
-          const evt = row.original
-          return (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="h-8 w-8 p-0">
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => {
-                    if (!evt) return
-                    setSelectedEvent(evt)
-                    setViewDialogOpen(true)
-                  }}
-                >
-                  View
-                  <DropdownMenuShortcut>⇧V</DropdownMenuShortcut>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => {
-                    if (!evt) return
-                    setSelectedEvent(evt)
-                    setEditForm({ ...evt, eventType: evt.eventType as "CGI" | "QUOTE" | "ORDER" })
-                    setEditStep(1)
-                    setEditDialogOpen(true)
-                  }}
-                >
-                  Edit
-                  <DropdownMenuShortcut>⇧E</DropdownMenuShortcut>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => {
-                    if (!evt) return
-                    setSelectedEvent(evt)
-                    setDeleteDialogOpen(true)
-                  }}
-                >
-                  Delete
-                  <DropdownMenuShortcut>⌘⌫</DropdownMenuShortcut>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )
-        },
-      },
-    ],
-    []
-  )
+    },
+  ], [])
 
-  // ------------- Setup TanStack React Table -------------
+  // ---------- React-Table ----------
   const table = useReactTable({
     data: filteredEvents,
     columns,
+    state: { pagination },
+    onPaginationChange: setPagination,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
-    initialState: { pagination: { pageSize: PAGE_SIZE } },
+    autoResetPageIndex: false,
   })
 
-  // ------------- Delete Handler (with PIN) -------------
+  // ---------- Delete ----------
   async function handleDelete() {
     if (!selectedEvent) return
     if (pinInput.trim() !== "113010") {
@@ -294,14 +259,12 @@ export default function EventsPage() {
       return
     }
     try {
-      const res = await fetch(`/api/events?id=${selectedEvent.id}`, {
-        method: "DELETE",
-      })
+      const res = await fetch(`/api/events?id=${selectedEvent.id}`, { method: "DELETE" })
       if (!res.ok) {
         const err = await res.json()
         throw new Error(err.error || "Failed to delete event")
       }
-      setEvents(prev => prev.filter(evt => evt.id !== selectedEvent!.id))
+      setEvents(prev => prev.filter(evt => evt.id !== selectedEvent.id))
       toast.success("Event deleted successfully!")
     } catch (err: any) {
       toast.error(err.message || "Error deleting event.")
@@ -312,38 +275,42 @@ export default function EventsPage() {
     }
   }
 
-  // ------------- Update Handler -------------
+  // ---------- Update ----------
   async function handleUpdate() {
-    if (!selectedEvent) return
+    if (!selectedEvent) return;
+    const currentPage = pagination.pageIndex;
     try {
       const res = await fetch("/api/events", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: selectedEvent.id, data: editForm }),
-      })
+      });
       if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error || "Failed to update event")
+        const err = await res.json();
+        throw new Error(err.error || "Failed to update event");
       }
-      const updated = await res.json()
-      setEvents(prev =>
-        prev.map(evt => (evt.id === selectedEvent!.id ? updated : evt))
-      )
-      toast.success("Event updated successfully!")
-      setEditDialogOpen(false)
-      setSelectedEvent(null)
+      const updated = await res.json();
+      setEvents(prev => prev.map(evt => (evt.id === selectedEvent.id ? updated : evt)));
+
+      setEditDialogOpen(false);
+      setSelectedEvent(null);
+      setEditStep(1);
+      setPagination(prev => ({ ...prev, pageIndex: currentPage }));
+
+      toast.success("Event updated successfully!");
     } catch (err: any) {
-      toast.error(err.message || "Error updating event.")
+      toast.error(err.message || "Error updating event.");
     }
   }
 
-  // ------------- Multi-Step Edit Modal Render -------------
+  // ---------- Edit Steps ----------
   const renderEditStep = () => {
     if (editStep === 1) {
       return (
         <div className="space-y-6">
           <h3 className="text-xl font-semibold">Basic Information</h3>
           <div className="grid grid-cols-2 gap-6">
+            {/* existing fields */}
             <div>
               <Label>Company Name</Label>
               <Input
@@ -438,6 +405,26 @@ export default function EventsPage() {
                 }
                 className="mt-1"
               />
+            </div>
+            <div>
+              <Label>Line of Work</Label>
+              <Select
+                value={editForm.lineOfWork || ""}
+                onValueChange={(val) =>
+                  setEditForm(prev => ({ ...prev, lineOfWork: val }))
+                }
+              >
+                <SelectTrigger className="mt-1 w-full">
+                  <SelectValue placeholder="Select" />
+                </SelectTrigger>
+                <SelectContent>
+                  {LINE_OF_WORK_OPTIONS.map(opt => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <div className="flex justify-end gap-4">
@@ -635,7 +622,7 @@ export default function EventsPage() {
               />
             </div>
             <div>
-              <Label>PO Number</Label>
+              <Label>Sales Order Number</Label>
               <Input
                 value={editForm.poNumber || ""}
                 onChange={(e) =>
@@ -698,6 +685,7 @@ export default function EventsPage() {
                 className="mt-1"
               />
             </div>
+            {/* checkboxes */}
             <div className="col-span-2 flex items-center gap-2">
               <input
                 type="checkbox"
@@ -726,7 +714,7 @@ export default function EventsPage() {
                   setEditForm(prev => ({ ...prev, poReceived: e.target.checked }))
                 }
               />
-              <Label>PO Received</Label>
+              <Label>Sales Order Received</Label>
             </div>
             <div className="col-span-2 flex items-center gap-2">
               <input
@@ -740,26 +728,22 @@ export default function EventsPage() {
             </div>
           </div>
           <div className="flex justify-between mt-6">
-            <Button variant="outline" onClick={() => setEditStep(editStep - 1)} disabled={editStep === 1}>
+            <Button variant="outline" onClick={() => setEditStep(editStep - 1)}>
               Back
             </Button>
-            {editStep < 3 ? (
-              <Button onClick={() => setEditStep(editStep + 1)}>Next</Button>
-            ) : (
-              <Button onClick={handleUpdate}>Save Changes</Button>
-            )}
+            <Button onClick={handleUpdate}>Save Changes</Button>
           </div>
         </div>
       )
     }
-  } // <-- This is the missing closing curly brace for renderEditStep
+  }
 
   return (
     <div className="p-6 space-y-6">
-      <ToastContainer />
+      <ToastContainer autoClose={4000} newestOnTop pauseOnHover />
+
       <h1 className="text-3xl font-bold mb-6">Events Management</h1>
 
-      {/* Four Search/Filter Inputs */}
       <div className="flex flex-col sm:flex-row gap-4">
         <Input
           placeholder="Search by Customer..."
@@ -830,7 +814,6 @@ export default function EventsPage() {
         </div>
       )}
 
-      {/* Pagination Controls */}
       <div className="flex items-center justify-between py-2">
         <span className="text-sm text-muted-foreground">
           Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()}
@@ -855,7 +838,7 @@ export default function EventsPage() {
         </div>
       </div>
 
-      {/* View Event Dialog */}
+      {/* View Dialog */}
       <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -866,50 +849,35 @@ export default function EventsPage() {
           </DialogHeader>
           {selectedEvent && (
             <div className="space-y-4 mt-4 text-sm">
-              <p>
-                <strong>Customer:</strong> {selectedEvent.customerName}
-              </p>
-              <p>
-                <strong>Quote Number:</strong> {selectedEvent.quoteNumber || "-"}
-              </p>
-              <p>
-                <strong>Status:</strong> {selectedEvent.status}
-              </p>
-              <p>
-                <strong>Date:</strong> {new Date(selectedEvent.date).toLocaleString()}
-              </p>
-              <p>
-                <strong>Sales Representative:</strong>{" "}
-                {selectedEvent.salesRepresentative || "-"}
-              </p>
-              <p>
-                <strong>Contact:</strong> {selectedEvent.contactPerson}
-              </p>
-              <p>
-                <strong>Phone:</strong> {selectedEvent.phone}
-              </p>
-              <p>
-                <strong>PO Number:</strong> {selectedEvent.poNumber || "-"}
-              </p>
-              <p>
-                <strong>Price:</strong>{" "}
-                {selectedEvent.price ? `R${selectedEvent.price.toFixed(2)}` : "-"}
-              </p>
-              <p>
-                <strong>Priority:</strong> {selectedEvent.priority || "-"}
-              </p>
+              <p><strong>Customer:</strong> {selectedEvent.customerName}</p>
+              <p><strong>Quote Number:</strong> {selectedEvent.quoteNumber || "-"}</p>
+              <p><strong>Status:</strong> {selectedEvent.status}</p>
+              <p><strong>Date:</strong> {new Date(selectedEvent.date).toLocaleString()}</p>
+              <p><strong>Sales Representative:</strong> {selectedEvent.salesRepresentative || "-"}</p>
+              <p><strong>Contact:</strong> {selectedEvent.contactPerson}</p>
+              <p><strong>Phone:</strong> {selectedEvent.phone}</p>
+              <p><strong>Sales Order Number:</strong> {selectedEvent.poNumber || "-"}</p>
+              <p><strong>Price:</strong> {selectedEvent.price ? `R${selectedEvent.price.toFixed(2)}` : "-"}</p>
+              <p><strong>Priority:</strong> {selectedEvent.priority || "-"}</p>
+              <p><strong>Line of Work:</strong> {selectedEvent.lineOfWork || "-"}</p>
             </div>
           )}
           <DialogFooter>
-            <DialogClose asChild>
-              <Button>Close</Button>
-            </DialogClose>
+            <Button variant="outline" onClick={() => setViewDialogOpen(false)}>
+              Close
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Edit Event Dialog (Multi-Step) */}
-      <Dialog open={editDialogOpen} onOpenChange={() => { setEditDialogOpen(false); setEditStep(1) }}>
+      {/* Edit Dialog */}
+      <Dialog
+        open={editDialogOpen}
+        onOpenChange={() => {
+          setEditDialogOpen(false)
+          setEditStep(1)
+        }}
+      >
         <DialogContent className="min-w-[800px] p-0">
           <DialogHeader className="bg-gray-100 p-4">
             <DialogTitle>Edit Event ({selectedEvent?.referenceCode})</DialogTitle>
@@ -917,18 +885,16 @@ export default function EventsPage() {
               Use the steps below to update all event fields.
             </DialogDescription>
           </DialogHeader>
-          <div className="p-6 space-y-6">
-            {renderEditStep()}
-          </div>
+          <div className="p-6 space-y-6">{renderEditStep()}</div>
           <DialogFooter className="p-4">
-            <DialogClose asChild>
-              <Button variant="outline">Cancel</Button>
-            </DialogClose>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
+              Cancel
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog (with PIN) */}
+      {/* Delete Dialog */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -945,17 +911,15 @@ export default function EventsPage() {
             />
           </div>
           <DialogFooter className="mt-4">
-            <DialogClose asChild>
-              <Button variant="outline">Cancel</Button>
-            </DialogClose>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+              Cancel
+            </Button>
             <Button variant="destructive" onClick={handleDelete}>
               Delete
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <ToastContainer />
     </div>
   )
 }

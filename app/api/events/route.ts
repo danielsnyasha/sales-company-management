@@ -1,90 +1,108 @@
-import { NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
-import { parseISO } from "date-fns";
+import { NextResponse } from "next/server"
+import prisma from "@/lib/prisma"
+import { parseISO } from "date-fns"
 
-// GET: Fetch events with optional period & date filtering
+// ────────────────────────────────────────────────────────────────
+// GET: Fetch events (optionally filtered by period and/or date)
+// ────────────────────────────────────────────────────────────────
 export async function GET(request: Request) {
   try {
-    const { searchParams } = new URL(request.url);
-    const period = searchParams.get("period");
-    const dateParam = searchParams.get("date");
+    const { searchParams } = new URL(request.url)
+    const period = searchParams.get("period")
+    const dateParam = searchParams.get("date")
 
-    let baseDate: Date | null = null;
-    if (dateParam) {
-      baseDate = parseISO(dateParam);
-    }
+    let baseDate: Date | null = null
+    if (dateParam) baseDate = parseISO(dateParam)
 
-    let startDate: Date | null = null;
-    let endDate: Date | null = null;
+    let startDate: Date | null = null
+    let endDate: Date | null = null
 
-    // Calculate start & end of the requested period, if applicable:
+    // derive date window (week / month / quarter / year)
     if (baseDate && period) {
       switch (period) {
         case "week": {
-          // example: Sunday-based
-          const dayOfWeek = baseDate.getDay(); // 0=Sun,1=Mon,...
-          startDate = new Date(baseDate);
-          startDate.setDate(baseDate.getDate() - dayOfWeek);
-          startDate.setHours(0, 0, 0, 0);
+          const dow = baseDate.getDay() // 0=Sun
+          startDate = new Date(baseDate)
+          startDate.setDate(baseDate.getDate() - dow)
+          startDate.setHours(0, 0, 0, 0)
 
-          endDate = new Date(startDate);
-          endDate.setDate(startDate.getDate() + 6);
-          endDate.setHours(23, 59, 59, 999);
-          break;
+          endDate = new Date(startDate)
+          endDate.setDate(startDate.getDate() + 6)
+          endDate.setHours(23, 59, 59, 999)
+          break
         }
         case "month": {
-          startDate = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
-          endDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 0, 23, 59, 59, 999);
-          break;
+          startDate = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1)
+          endDate = new Date(
+            baseDate.getFullYear(),
+            baseDate.getMonth() + 1,
+            0,
+            23,
+            59,
+            59,
+            999
+          )
+          break
         }
         case "quarter": {
-          const quarter = Math.floor(baseDate.getMonth() / 3); // 0=Q1,1=Q2,2=Q3,3=Q4
-          startDate = new Date(baseDate.getFullYear(), quarter * 3, 1);
-          endDate = new Date(baseDate.getFullYear(), quarter * 3 + 3, 0, 23, 59, 59, 999);
-          break;
+          const q = Math.floor(baseDate.getMonth() / 3) // 0-3
+          startDate = new Date(baseDate.getFullYear(), q * 3, 1)
+          endDate = new Date(
+            baseDate.getFullYear(),
+            q * 3 + 3,
+            0,
+            23,
+            59,
+            59,
+            999
+          )
+          break
         }
         case "year": {
-          startDate = new Date(baseDate.getFullYear(), 0, 1);
-          endDate = new Date(baseDate.getFullYear(), 11, 31, 23, 59, 59, 999);
-          break;
+          startDate = new Date(baseDate.getFullYear(), 0, 1)
+          endDate = new Date(
+            baseDate.getFullYear(),
+            11,
+            31,
+            23,
+            59,
+            59,
+            999
+          )
+          break
         }
         default:
-          // If an unknown period is passed, do nothing special.
-          break;
+          break
       }
     }
 
-    // Build your Prisma "where" clause to filter by date if we have a range:
-    const whereClause: any = {};
+    const whereClause: any = {}
     if (startDate && endDate) {
-      whereClause.date = {
-        gte: startDate,
-        lte: endDate,
-      };
+      whereClause.date = { gte: startDate, lte: endDate }
     }
 
-    // Query the database with any needed date filter
     const events = await prisma.event.findMany({
       where: whereClause,
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+      orderBy: { createdAt: "desc" },
+    })
 
-    return NextResponse.json(events);
+    return NextResponse.json(events)
   } catch (error: any) {
-    console.error("Error fetching events:", error);
-    return NextResponse.json({ error: "Failed to fetch events" }, { status: 500 });
+    console.error("Error fetching events:", error)
+    return NextResponse.json(
+      { error: "Failed to fetch events" },
+      { status: 500 }
+    )
   }
 }
 
-// PATCH: Update a given event based on its unique identifier.
+// ────────────────────────────────────────────────────────────────
+// PATCH: Update a single event
+// ────────────────────────────────────────────────────────────────
 export async function PATCH(request: Request) {
   try {
-    const { id, data } = await request.json();
-    if (!id) {
-      throw new Error("Event ID is required for update.");
-    }
+    const { id, data } = await request.json()
+    if (!id) throw new Error("Event ID is required for update.")
 
     const updatedEvent = await prisma.event.update({
       where: { id },
@@ -105,51 +123,68 @@ export async function PATCH(request: Request) {
         poReceived: Boolean(data.poReceived),
         poNumber: data.poNumber,
         quoteNumber: data.quoteNumber,
-        leadTime: data.leadTime !== undefined ? Number(data.leadTime) : undefined,
-        deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : undefined,
-        quoteReceivedAt: data.quoteReceivedAt ? new Date(data.quoteReceivedAt) : undefined,
-        csiConvertedAt: data.csiConvertedAt ? new Date(data.csiConvertedAt) : undefined,
-        jobCompletedAt: data.jobCompletedAt ? new Date(data.jobCompletedAt) : undefined,
-        natureOfWork: Array.isArray(data.natureOfWork) ? data.natureOfWork : undefined,
+        leadTime:
+          data.leadTime !== undefined ? Number(data.leadTime) : undefined,
+        deliveryDate: data.deliveryDate
+          ? new Date(data.deliveryDate)
+          : undefined,
+        quoteReceivedAt: data.quoteReceivedAt
+          ? new Date(data.quoteReceivedAt)
+          : undefined,
+        csiConvertedAt: data.csiConvertedAt
+          ? new Date(data.csiConvertedAt)
+          : undefined,
+        jobCompletedAt: data.jobCompletedAt
+          ? new Date(data.jobCompletedAt)
+          : undefined,
+        natureOfWork: Array.isArray(data.natureOfWork)
+          ? data.natureOfWork
+          : undefined,
         actualWorkDescription: data.actualWorkDescription,
-        processCost: data.processCost !== undefined ? Number(data.processCost) : undefined,
+        processCost:
+          data.processCost !== undefined ? Number(data.processCost) : undefined,
         productName: data.productName,
-        quantity: data.quantity !== undefined ? Number(data.quantity) : undefined,
+        quantity:
+          data.quantity !== undefined ? Number(data.quantity) : undefined,
         price: data.price !== undefined ? Number(data.price) : undefined,
         region: data.region,
         shippingMethod: data.shippingMethod,
         internalNotes: data.internalNotes,
         isPriorityCustomer: Boolean(data.isPriorityCustomer),
-      },
-    });
 
-    return NextResponse.json(updatedEvent, { status: 200 });
+        // NEW: Line of Work (enum value: EC | SSC | SMP | OEM | Unknown)
+        lineOfWork: data.lineOfWork,
+      },
+    })
+
+    return NextResponse.json(updatedEvent, { status: 200 })
   } catch (error: any) {
-    console.error("Error updating event:", error);
+    console.error("Error updating event:", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }
-    );
+    )
   }
 }
 
-// DELETE: Delete an event by ID.
+// ────────────────────────────────────────────────────────────────
+// DELETE: Remove an event by ID
+// ────────────────────────────────────────────────────────────────
 export async function DELETE(request: Request) {
   try {
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get("id");
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get("id")
     if (!id) {
-      return NextResponse.json({ error: "ID is required" }, { status: 400 });
+      return NextResponse.json({ error: "ID is required" }, { status: 400 })
     }
-    const deleted = await prisma.event.delete({
-      where: { id },
-    });
-    return NextResponse.json(deleted, { status: 200 });
+
+    const deleted = await prisma.event.delete({ where: { id } })
+    return NextResponse.json(deleted, { status: 200 })
   } catch (error: any) {
-    console.error("Error deleting event:", error);
+    console.error("Error deleting event:", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }
-    );
+    )
   }
 }

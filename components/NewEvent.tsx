@@ -32,7 +32,15 @@ import {
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
-import { Check, ChevronsUpDown, User, Calendar, Briefcase, Phone, Award } from "lucide-react"
+import {
+  Check,
+  ChevronsUpDown,
+  User,
+  Calendar,
+  Briefcase,
+  Phone,
+  Award,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 
 // ----- CONSTANTS & TYPES -----
@@ -60,6 +68,15 @@ const NATURE_OF_WORK_OPTIONS = [
   "More than one",
 ]
 const SHIPPING_METHODS = ["Ground", "Air", "Sea"]
+
+// NEW: Line of Work dropdown options
+const LINE_OF_WORK_OPTIONS = [
+  { label: "Electro Motors", value: "EC" },
+  { label: "Steel Service Center", value: "SSC" },
+  { label: "Structural Mechanical And Plate", value: "SMP" },
+  { label: "Original Equipment Manufacture", value: "OEM" },
+  { label: "Other", value: "Unknown" },
+]
 
 interface Company {
   id: string
@@ -97,6 +114,8 @@ interface NewEventPayload {
   shippingMethod: string
   internalNotes: string
   isPriorityCustomer: boolean
+  // NEW: Line of Work
+  lineOfWork: string
 }
 
 // ----- NewEventPage Component -----
@@ -113,7 +132,6 @@ export default function NewEventPage() {
   const [companyQuery, setCompanyQuery] = useState("")
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null)
   const [companyDialogOpen, setCompanyDialogOpen] = useState(false)
-  // newCompanyData now only holds companyName.
   const [newCompanyData, setNewCompanyData] = useState({ companyName: "" })
   const [loadingCompanies, setLoadingCompanies] = useState(false)
 
@@ -121,17 +139,15 @@ export default function NewEventPage() {
   const [salesRepresentative, setSalesRepresentative] = useState("")
   const [eventType, setEventType] = useState<"ORDER" | "QUOTE" | "CGI">("ORDER")
   const [dateValue, setDateValue] = useState<Date | null>(new Date())
-  // Customer & Company name come from the selected company
   const [status, setStatus] = useState("Pending")
   const [priority, setPriority] = useState("Low")
+  const [lineOfWork, setLineOfWork] = useState("")            // NEW
+  const [natureOfWork, setNatureOfWork] = useState("")        // moved UI to step 1
 
-  // ----- Step 2: Quote & PO Details -----
+  // ----- Step 2: Quote & Sales-Order Details -----
   const [quoteSent, setQuoteSent] = useState(false)
-  // NEW: Add a state for quoteNumber (this is the field to be sent to the database)
   const [quoteNumber, setQuoteNumber] = useState("")
   const [poReceived, setPoReceived] = useState(false)
-  // For backward compatibility, if needed, you can keep customerQuoteNumber,
-  // but here we use quoteNumber to store the quote reference.
   const [poNumber, setPoNumber] = useState("")
   const [leadTime, setLeadTime] = useState<number | undefined>(undefined)
 
@@ -146,7 +162,6 @@ export default function NewEventPage() {
   const [quoteReceivedAt, setQuoteReceivedAt] = useState<Date | null>(null)
   const [csiConvertedAt, setCsiConvertedAt] = useState<Date | null>(null)
   const [jobCompletedAt, setJobCompletedAt] = useState<Date | null>(null)
-  const [natureOfWork, setNatureOfWork] = useState("")
   const [actualWorkDescription, setActualWorkDescription] = useState("")
   const [processCost, setProcessCost] = useState<number | undefined>(undefined)
   const [productName, setProductName] = useState("")
@@ -204,7 +219,7 @@ export default function NewEventPage() {
         return
       }
       if (poReceived && !quoteSent) {
-        toast.error("Cannot have a PO if Quote was not sent.")
+        toast.error("Cannot have a Sales Order if Quote was not sent.")
         return
       }
       setProgress(75)
@@ -243,7 +258,6 @@ export default function NewEventPage() {
       const res = await fetch("/api/companies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // Only send companyName; backend will auto-generate companyNumber.
         body: JSON.stringify({ companyName: companyNameToCreate }),
       })
       if (!res.ok) throw new Error("Failed to create company")
@@ -270,7 +284,7 @@ export default function NewEventPage() {
   // ----- Final Submit Handler -----
   async function handleSubmit() {
     if (poReceived && !quoteSent) {
-      toast.error("Cannot have a PO if Quote is not sent.")
+      toast.error("Cannot have a Sales Order if Quote is not sent.")
       return
     }
     if (quoteSent && !leadTime) {
@@ -308,6 +322,7 @@ export default function NewEventPage() {
       shippingMethod,
       internalNotes,
       isPriorityCustomer,
+      lineOfWork,                                    // NEW
     }
     try {
       const res = await fetch("/api/newEvent", {
@@ -332,9 +347,14 @@ export default function NewEventPage() {
       {/* Progress Bar */}
       <div className="mb-6">
         <div className="w-full bg-gray-200 h-2 rounded">
-          <div className="bg-purple-500 h-2 rounded" style={{ width: `${progress}%` }} />
+          <div
+            className="bg-purple-500 h-2 rounded"
+            style={{ width: `${progress}%` }}
+          />
         </div>
-        <p className="text-center mt-2 text-sm text-gray-600">Step {step} of 4</p>
+        <p className="text-center mt-2 text-sm text-gray-600">
+          Step {step} of 4
+        </p>
       </div>
 
       {/* Step 1: Basic Info */}
@@ -344,9 +364,11 @@ export default function NewEventPage() {
             <User className="h-6 w-6" /> Basic Info
           </h2>
 
+          {/* Sales Rep */}
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 flex items-center gap-1">
-              <User className="h-4 w-4" /> Sales Representative <span className="text-red-500">*</span>
+              <User className="h-4 w-4" /> Sales Representative{" "}
+              <span className="text-red-500">*</span>
             </label>
             <select
               className="mt-1 block w-full border border-gray-300 rounded p-2"
@@ -354,7 +376,7 @@ export default function NewEventPage() {
               onChange={(e) => setSalesRepresentative(e.target.value)}
             >
               <option value="">-- Select --</option>
-              {SALES_REPS.map(rep => (
+              {SALES_REPS.map((rep) => (
                 <option key={rep} value={rep}>
                   {rep}
                 </option>
@@ -362,9 +384,11 @@ export default function NewEventPage() {
             </select>
           </div>
 
+          {/* Date */}
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 flex items-center gap-1">
-              <Calendar className="h-4 w-4" /> Date <span className="text-red-500">*</span>
+              <Calendar className="h-4 w-4" /> Date{" "}
+              <span className="text-red-500">*</span>
             </label>
             <DatePicker
               selected={dateValue}
@@ -380,12 +404,15 @@ export default function NewEventPage() {
           {/* Company Combobox */}
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 flex items-center gap-1">
-              <Briefcase className="h-4 w-4" /> Company (Customer) <span className="text-red-500">*</span>
+              <Briefcase className="h-4 w-4" /> Company (Customer{" "}
+              <span className="text-red-500">*</span>)
             </label>
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline" className="w-full justify-between">
-                  {selectedCompany ? selectedCompany.companyName : "Type to search..."}
+                  {selectedCompany
+                    ? selectedCompany.companyName
+                    : "Type to search..."}
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
               </PopoverTrigger>
@@ -416,7 +443,14 @@ export default function NewEventPage() {
                           setCompanyQuery("")
                         }}
                       >
-                        <Check className={cn("mr-2 h-4 w-4", selectedCompany?.id === c.id ? "opacity-100" : "opacity-0")} />
+                        <Check
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            selectedCompany?.id === c.id
+                              ? "opacity-100"
+                              : "opacity-0"
+                          )}
+                        />
                         {c.companyName}
                       </Button>
                     ))
@@ -460,7 +494,10 @@ export default function NewEventPage() {
                   </div>
                 </div>
                 <div className="mt-4 flex justify-end">
-                  <Button className="bg-green-600 text-white" onClick={handleCreateCompany}>
+                  <Button
+                    className="bg-green-600 text-white"
+                    onClick={handleCreateCompany}
+                  >
                     Save
                   </Button>
                   <DialogClose asChild>
@@ -471,17 +508,61 @@ export default function NewEventPage() {
             </Dialog>
           </div>
 
-          <button className="bg-purple-600 text-white px-4 py-2 rounded mt-4" onClick={nextStep}>
+          {/* NEW: Line of Work */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 flex items-center gap-1">
+              <Briefcase className="h-4 w-4" /> Line of Work
+            </label>
+            <Select value={lineOfWork} onValueChange={(val) => setLineOfWork(val)}>
+              <SelectTrigger className="mt-1 w-full">
+                <SelectValue placeholder="Select" />
+              </SelectTrigger>
+              <SelectContent>
+                {LINE_OF_WORK_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* NEW: Nature of Job */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 flex items-center gap-1">
+              <Briefcase className="h-4 w-4" /> Nature of Job
+            </label>
+            <Select
+              value={natureOfWork}
+              onValueChange={(val) => setNatureOfWork(val)}
+            >
+              <SelectTrigger className="mt-1 w-full">
+                <SelectValue placeholder="Select" />
+              </SelectTrigger>
+              <SelectContent>
+                {NATURE_OF_WORK_OPTIONS.map((opt) => (
+                  <SelectItem key={opt} value={opt}>
+                    {opt}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <button
+            className="bg-purple-600 text-white px-4 py-2 rounded mt-4"
+            onClick={nextStep}
+          >
             Next
           </button>
         </div>
       )}
 
-      {/* Step 2: Quote & PO Details */}
+      {/* Step 2: Quote & Sales-Order Details */}
       {step === 2 && (
         <div>
           <h2 className="text-2xl font-bold mb-4 text-purple-700 flex items-center gap-1">
-            <Briefcase className="h-5 w-5" /> Quote &amp; PO Details
+            <Briefcase className="h-5 w-5" /> Quote &amp; Sales Order Details
           </h2>
 
           <div className="mb-4 flex items-center space-x-2">
@@ -491,7 +572,10 @@ export default function NewEventPage() {
               checked={quoteSent}
               onChange={(e) => setQuoteSent(e.target.checked)}
             />
-            <label htmlFor="quoteSent" className="text-sm font-medium text-gray-700">
+            <label
+              htmlFor="quoteSent"
+              className="text-sm font-medium text-gray-700"
+            >
               Quote Sent?
             </label>
           </div>
@@ -510,7 +594,7 @@ export default function NewEventPage() {
 
           <div className="mb-4">
             <Label className="flex items-center gap-1">
-              <Award className="h-4 w-4" /> PO Received?
+              <Award className="h-4 w-4" /> Sales Order Received?
             </Label>
             <div className="flex items-center">
               <input
@@ -520,7 +604,10 @@ export default function NewEventPage() {
                 onChange={(e) => setPoReceived(e.target.checked)}
                 disabled={!quoteSent}
               />
-              <label htmlFor="poReceived" className="ml-2 text-sm font-medium text-gray-700">
+              <label
+                htmlFor="poReceived"
+                className="ml-2 text-sm font-medium text-gray-700"
+              >
                 Yes
               </label>
             </div>
@@ -528,7 +615,7 @@ export default function NewEventPage() {
 
           <div className="mb-4">
             <Label className="flex items-center gap-1">
-              <Award className="h-4 w-4" /> PO Number
+              <Award className="h-4 w-4" /> Sales Order Number
             </Label>
             <Input
               className="mt-1"
@@ -546,7 +633,9 @@ export default function NewEventPage() {
               type="number"
               className="mt-1"
               value={leadTime === undefined ? "" : leadTime}
-              onChange={(e) => setLeadTime(e.target.value ? Number(e.target.value) : undefined)}
+              onChange={(e) =>
+                setLeadTime(e.target.value ? Number(e.target.value) : undefined)
+              }
               disabled={!quoteSent || !quoteNumber.trim()}
             />
           </div>
@@ -571,16 +660,26 @@ export default function NewEventPage() {
 
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 flex items-center gap-1">
-              <User className="h-4 w-4" /> Contact Person <span className="text-red-500">*</span>
+              <User className="h-4 w-4" /> Contact Person{" "}
+              <span className="text-red-500">*</span>
             </label>
-            <Input className="mt-1" value={contactPerson} onChange={(e) => setContactPerson(e.target.value)} />
+            <Input
+              className="mt-1"
+              value={contactPerson}
+              onChange={(e) => setContactPerson(e.target.value)}
+            />
           </div>
 
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 flex items-center gap-1">
-              <Phone className="h-4 w-4" /> Phone <span className="text-red-500">*</span>
+              <Phone className="h-4 w-4" /> Phone{" "}
+              <span className="text-red-500">*</span>
             </label>
-            <Input className="mt-1" value={phone} onChange={(e) => setPhone(e.target.value)} />
+            <Input
+              className="mt-1"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+            />
           </div>
 
           <div className="mb-4 flex space-x-2">
@@ -588,7 +687,10 @@ export default function NewEventPage() {
               <label className="block text-sm font-medium text-gray-700 flex items-center gap-1">
                 <Award className="h-4 w-4" /> Payment Status
               </label>
-              <Select value={paymentStatus} onValueChange={(val) => setPaymentStatus(val)}>
+              <Select
+                value={paymentStatus}
+                onValueChange={(val) => setPaymentStatus(val)}
+              >
                 <SelectTrigger className="mt-1 w-full">
                   <SelectValue placeholder="Select" />
                 </SelectTrigger>
@@ -603,7 +705,8 @@ export default function NewEventPage() {
             </div>
             <div className="flex-1">
               <label className="block text-sm font-medium text-gray-700 flex items-center gap-1">
-                <Award className="h-4 w-4" /> Status <span className="text-red-500">*</span>
+                <Award className="h-4 w-4" /> Status{" "}
+                <span className="text-red-500">*</span>
               </label>
               <Select value={status} onValueChange={(val) => setStatus(val)}>
                 <SelectTrigger className="mt-1 w-full">
@@ -633,8 +736,12 @@ export default function NewEventPage() {
           </div>
 
           <div className="flex space-x-2 mt-4">
-            <Button variant="outline" onClick={prevStep}>Back</Button>
-            <Button className="bg-purple-600 text-white" onClick={nextStep}>Next</Button>
+            <Button variant="outline" onClick={prevStep}>
+              Back
+            </Button>
+            <Button className="bg-purple-600 text-white" onClick={nextStep}>
+              Next
+            </Button>
           </div>
         </div>
       )}
@@ -646,6 +753,7 @@ export default function NewEventPage() {
             <Calendar className="h-5 w-5" /> Additional Details
           </h2>
 
+          {/* Delivery, Quote, CSI, Job dates */}
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 flex items-center gap-1">
               <Calendar className="h-4 w-4" /> Delivery Date &amp; Time
@@ -712,6 +820,7 @@ export default function NewEventPage() {
             />
           </div>
 
+          {/* Process cost & lead time */}
           <div className="mb-4 flex space-x-2">
             <div className="flex-1">
               <label className="block text-sm font-medium text-gray-700 flex items-center gap-1">
@@ -721,7 +830,11 @@ export default function NewEventPage() {
                 type="number"
                 className="mt-1"
                 value={processCost === undefined ? "" : processCost}
-                onChange={(e) => setProcessCost(e.target.value ? Number(e.target.value) : undefined)}
+                onChange={(e) =>
+                  setProcessCost(
+                    e.target.value ? Number(e.target.value) : undefined
+                  )
+                }
               />
             </div>
             <div className="flex-1">
@@ -732,12 +845,15 @@ export default function NewEventPage() {
                 type="number"
                 className="mt-1"
                 value={leadTime === undefined ? "" : leadTime}
-                onChange={(e) => setLeadTime(e.target.value ? Number(e.target.value) : undefined)}
+                onChange={(e) =>
+                  setLeadTime(e.target.value ? Number(e.target.value) : undefined)
+                }
                 disabled={!quoteSent || !quoteNumber.trim()}
               />
             </div>
           </div>
 
+          {/* Product, qty, price */}
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 flex items-center gap-1">
               <Briefcase className="h-4 w-4" /> Product Name
@@ -758,7 +874,11 @@ export default function NewEventPage() {
                 type="number"
                 className="mt-1"
                 value={quantity === undefined ? "" : quantity}
-                onChange={(e) => setQuantity(e.target.value ? Number(e.target.value) : undefined)}
+                onChange={(e) =>
+                  setQuantity(
+                    e.target.value ? Number(e.target.value) : undefined
+                  )
+                }
               />
             </div>
             <div className="flex-1">
@@ -769,11 +889,14 @@ export default function NewEventPage() {
                 type="number"
                 className="mt-1"
                 value={price === undefined ? "" : price}
-                onChange={(e) => setPrice(e.target.value ? Number(e.target.value) : undefined)}
+                onChange={(e) =>
+                  setPrice(e.target.value ? Number(e.target.value) : undefined)
+                }
               />
             </div>
           </div>
 
+          {/* Region */}
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 flex items-center gap-1">
               <Briefcase className="h-4 w-4" /> Region
@@ -786,11 +909,15 @@ export default function NewEventPage() {
             />
           </div>
 
+          {/* Shipping */}
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 flex items-center gap-1">
               <Briefcase className="h-4 w-4" /> Shipping Method
             </label>
-            <Select value={shippingMethod} onValueChange={(val) => setShippingMethod(val)}>
+            <Select
+              value={shippingMethod}
+              onValueChange={(val) => setShippingMethod(val)}
+            >
               <SelectTrigger className="mt-1 w-full">
                 <SelectValue placeholder="Select" />
               </SelectTrigger>
@@ -804,6 +931,7 @@ export default function NewEventPage() {
             </Select>
           </div>
 
+          {/* Internal notes */}
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 flex items-center gap-1">
               <Briefcase className="h-4 w-4" /> Internal Notes
@@ -816,6 +944,7 @@ export default function NewEventPage() {
             />
           </div>
 
+          {/* Priority customer */}
           <div className="mb-4 flex items-center space-x-2">
             <input
               id="isPriorityCustomer"
@@ -823,12 +952,18 @@ export default function NewEventPage() {
               checked={isPriorityCustomer}
               onChange={(e) => setIsPriorityCustomer(e.target.checked)}
             />
-            <label htmlFor="isPriorityCustomer" className="text-sm font-medium text-gray-700 flex items-center gap-1">
+            <label
+              htmlFor="isPriorityCustomer"
+              className="text-sm font-medium text-gray-700 flex items-center gap-1"
+            >
               <Award className="h-4 w-4" /> Is Priority Customer?
             </label>
           </div>
 
-          <button className="bg-green-500 text-white px-4 py-2 rounded mt-4" onClick={handleSubmit}>
+          <button
+            className="bg-green-500 text-white px-4 py-2 rounded mt-4"
+            onClick={handleSubmit}
+          >
             Submit
           </button>
         </div>

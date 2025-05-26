@@ -10,6 +10,16 @@ generator client {
 
 }
 
+// ─── New enum ────────────────────────────────────────────────────────────────
+enum LineOfWork {
+  EC   // Electro Motors
+  SSC  // Steel Service Center
+  SMP  // Structural Mechanical And Plate
+  OEM  // Original Equipment Manufacture
+  Unknown
+}
+
+
 enum EventType {
   CGI
   QUOTE
@@ -33,6 +43,7 @@ model Event {
   notes                 String?
   leadTime              Int?
   companyName           String?
+  lineOfWork            LineOfWork?      // ← NEW: classification of the quotation
   customerName          String?
   productName           String?
   quantity              Int?
