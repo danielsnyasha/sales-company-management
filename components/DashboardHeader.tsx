@@ -22,7 +22,7 @@ export default function DashboardHeader() {
       <nav className="flex items-center space-x-4">
         <Link href="/dashboard">Dashboard</Link>
         <Link href="/team">Team</Link>
-        <Link href="/activities">Events</Link>
+        <Link href="/activities">Data-Table</Link>
         <Link href="/add-customer">Post</Link>
         <Link href="/reports">Reports</Link>
         <Link href="#">Calendar</Link>

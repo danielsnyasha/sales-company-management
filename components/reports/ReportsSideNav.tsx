@@ -20,8 +20,8 @@ export default function ReportsSideNav({ activeTab, onTabChange }: ReportsSideNa
     { id: "overview", label: "Overview", icon: LayoutDashboard },
     { id: "sales-orders", label: "Sales Orders", icon: ShoppingCart },
     { id: "quotations", label: "Quotations", icon: CreditCard },
-    { id: "csis", label: "CSIs", icon: Send },
-    { id: "summary", label: "Summary", icon: Banknote },
+    { id: "csis", label: "Line Of Work (Value)", icon: Send },
+    { id: "summary", label: "Line of Work (Person)", icon: Banknote },
   ];
 
   return (

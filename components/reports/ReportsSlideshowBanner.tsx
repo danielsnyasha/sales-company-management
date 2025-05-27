@@ -145,7 +145,7 @@ export default function UltimateDashboardBanner() {
       {
         id: "target",
         title: "Sales Target",
-        subtitle: "6.5M per Month",
+        subtitle: "7.5M per Month",
       },
       {
         id: "reps",
@@ -318,19 +318,19 @@ function MetricCard({
   );
 }
 
-/** Slide that shows the 6.5M target */
+/** Slide that shows the 7.5M target */
 function TargetSlide() {
   return (
     <div className="flex flex-col items-center justify-center gap-3">
       <div className="flex flex-col items-center">
         <Target className="h-8 w-8 mb-2" />
-        <p className="text-xl font-bold">Quarterly Target</p>
+        <p className="text-xl font-bold">Monthly Target</p>
       </div>
       <p className="text-3xl font-extrabold">
-        R {6500000 .toLocaleString("en-ZA")}
+        R {7500000 .toLocaleString("en-ZA")}
       </p>
       <p className="text-sm text-white/80">
-        Aiming for 6.5 Million in each quarter
+        Aiming for 7.5 Million per month
       </p>
     </div>
   );
