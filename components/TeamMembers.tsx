@@ -8,7 +8,7 @@ const teamMembers = [
   "Clare",
   "Richie",
   "Candice",
-  "Nyash",
+  "Nyasha",
   "Shaun",
   "Newbie"
 ]
