@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 
@@ -32,6 +32,8 @@ import {
 
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
+import CountUp from "react-countup";
+import { motion } from "framer-motion";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend);
 
@@ -107,20 +109,30 @@ export default function LineOfWorkReportPage() {
 
   const reportRef = useRef<HTMLDivElement>(null);
 
-  /* fetch events */
+  // --- 5min self-refresh logic ---
   useEffect(() => {
-    (async () => {
+    let mounted = true;
+    const fetchData = async () => {
       try {
         setLoading(true);
         const res = await fetch("/api/events");
         if (!res.ok) throw new Error("Fetch failed");
+        if (!mounted) return;
         setEvents(await res.json());
       } catch (err: any) {
         toast.error(err.message || "Error loading data");
       } finally {
         setLoading(false);
       }
-    })();
+    };
+
+    fetchData();
+
+    const interval = setInterval(fetchData, 5 * 60 * 1000); // every 5 minutes
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   /* helpers */
@@ -283,7 +295,13 @@ export default function LineOfWorkReportPage() {
 
   /* ───────────────────────── UI ──────────────────────── */
   return (
-    <div ref={reportRef} className="space-y-10 bg-white rounded-md p-6 shadow">
+    <motion.div
+      ref={reportRef}
+      className="space-y-10 bg-white rounded-md p-6 shadow"
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.7 }}
+    >
       <ToastContainer />
       <h1 className="text-3xl font-bold mb-4">Quotations & Orders by Line-of-Work</h1>
 
@@ -333,24 +351,82 @@ export default function LineOfWorkReportPage() {
       <p className="text-sm font-medium text-green-700">{rangeLabel}</p>
 
       {/* summary cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-gray-100 rounded-lg p-4">
+      <motion.div
+        className="grid grid-cols-1 md:grid-cols-4 gap-4"
+        initial="hidden"
+        animate="visible"
+        variants={{
+          hidden: {},
+          visible: {
+            transition: {
+              staggerChildren: 0.13,
+            },
+          },
+        }}
+      >
+        <motion.div
+          className="bg-gray-100 rounded-lg p-4"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.1 }}
+        >
           <h3 className="text-sm font-medium text-gray-700">Total Quotations</h3>
-          <p className="text-2xl font-bold text-gray-900">{fmt(totalQuoCount)}</p>
-        </div>
-        <div className="bg-gray-100 rounded-lg p-4">
+          <p className="text-2xl font-bold text-gray-900">
+            <CountUp end={totalQuoCount} duration={5} separator="," />
+          </p>
+        </motion.div>
+        <motion.div
+          className="bg-gray-100 rounded-lg p-4"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.2 }}
+        >
           <h3 className="text-sm font-medium text-gray-700">Total Orders</h3>
-          <p className="text-2xl font-bold text-gray-900">{fmt(totalSoCount)}</p>
-        </div>
-        <div className="bg-gray-100 rounded-lg p-4">
+          <p className="text-2xl font-bold text-gray-900">
+            <CountUp end={totalSoCount} duration={5} separator="," />
+          </p>
+        </motion.div>
+        <motion.div
+          className="bg-gray-100 rounded-lg p-4"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.3 }}
+        >
           <h3 className="text-sm font-medium text-gray-700">Quotation Value</h3>
-          <p className="text-2xl font-bold text-gray-900">{fmt(totalQuoValue, true)}</p>
-        </div>
-        <div className="bg-gray-100 rounded-lg p-4">
+          <p className="text-2xl font-bold text-gray-900">
+            <CountUp
+              end={totalQuoValue}
+              duration={5}
+              separator=","
+              decimals={2}
+              prefix="R "
+              formattingFn={(val) =>
+                new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR", maximumFractionDigits: 2 }).format(Number(val))
+              }
+            />
+          </p>
+        </motion.div>
+        <motion.div
+          className="bg-gray-100 rounded-lg p-4"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.4 }}
+        >
           <h3 className="text-sm font-medium text-gray-700">Order Value</h3>
-          <p className="text-2xl font-bold text-gray-900">{fmt(totalSoValue, true)}</p>
-        </div>
-      </div>
+          <p className="text-2xl font-bold text-gray-900">
+            <CountUp
+              end={totalSoValue}
+              duration={5}
+              separator=","
+              decimals={2}
+              prefix="R "
+              formattingFn={(val) =>
+                new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR", maximumFractionDigits: 2 }).format(Number(val))
+              }
+            />
+          </p>
+        </motion.div>
+      </motion.div>
 
       {/* charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -468,6 +544,6 @@ export default function LineOfWorkReportPage() {
           </ul>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

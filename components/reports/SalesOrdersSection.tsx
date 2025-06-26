@@ -39,6 +39,8 @@ import {
 
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
+import CountUp from "react-countup";
+import { motion } from "framer-motion";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend);
 
@@ -52,30 +54,26 @@ function getPeriodRange(period: Period, base = new Date()): [Date, Date] {
 
   switch (period) {
     case "week": {
-      // Sunday–Saturday of current week
-      const diff = base.getDay(); // 0 (Sun) … 6 (Sat)
+      const diff = base.getDay();
       start.setDate(base.getDate() - diff);
       end.setDate(start.getDate() + 6);
       break;
     }
-    case "month": {
+    case "month":
       start.setDate(1);
-      end.setMonth(start.getMonth() + 1, 0); // day 0 of next month = last day of this month
+      end.setMonth(start.getMonth() + 1, 0);
       break;
-    }
     case "quarter": {
-      const qStartMonth = Math.floor(base.getMonth() / 3) * 3; // 0,3,6,9
+      const qStartMonth = Math.floor(base.getMonth() / 3) * 3;
       start.setMonth(qStartMonth, 1);
-      end.setMonth(qStartMonth + 3, 0); // last day of quarter
+      end.setMonth(qStartMonth + 3, 0);
       break;
     }
-    case "year": {
-      start.setMonth(0, 1);  // 1 Jan
-      end.setMonth(12, 0);   // 31 Dec
+    case "year":
+      start.setMonth(0, 1);
+      end.setMonth(12, 0);
       break;
-    }
   }
-  // zero-out the time part for clean comparisons
   start.setHours(0, 0, 0, 0);
   end.setHours(23, 59, 59, 999);
   return [start, end];
@@ -114,26 +112,35 @@ export default function SalesOrdersSection() {
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const reportRef = useRef<HTMLDivElement>(null);
 
-  /* ——— data fetch ——— */
+  /* ——— data fetch + 5-minute refresh ——— */
   useEffect(() => {
-    (async () => {
+    let mounted = true;
+
+    const fetchEvents = async () => {
       try {
         setLoading(true);
         const res = await fetch("/api/events");
         if (!res.ok) throw new Error("Failed to fetch events");
-        setEvents(await res.json());
+        if (mounted) setEvents(await res.json());
       } catch (err: any) {
-        setError(err.message ?? "Unknown error");
+        if (mounted) setError(err.message ?? "Unknown error");
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
-    })();
+    };
+
+    fetchEvents();
+    const interval = setInterval(fetchEvents, 5 * 60 * 1000); // refresh every 5 min
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   /* ——— quick-select handler ——— */
   function handlePeriodChange(p: Period) {
     setSelectedPeriod(p);
-    setDateRange(getPeriodRange(p)); // ← sync the picker & filtering
+    setDateRange(getPeriodRange(p));
   }
 
   /* ——— filtering ——— */
@@ -144,15 +151,11 @@ export default function SalesOrdersSection() {
       if (evt.eventType !== "ORDER" || !evt.poReceived) return false;
 
       const customerOk = customerFilter
-        ? (evt.customerName ?? "")
-            .toLowerCase()
-            .includes(customerFilter.toLowerCase())
+        ? (evt.customerName ?? "").toLowerCase().includes(customerFilter.toLowerCase())
         : true;
 
       const poOk = poNumberFilter
-        ? (evt.poNumber ?? "")
-            .toLowerCase()
-            .includes(poNumberFilter.toLowerCase())
+        ? (evt.poNumber ?? "").toLowerCase().includes(poNumberFilter.toLowerCase())
         : true;
 
       const dateOk =
@@ -185,13 +188,12 @@ export default function SalesOrdersSection() {
   // ---- charts -------------------------------------------------------------
   const barChartData = useMemo(() => {
     const labels = Object.keys(totalsBySalesRep);
-    const data = labels.map((l) => totalsBySalesRep[l] ?? 0);
     return {
       labels,
       datasets: [
         {
           label: "Total Orders (ZAR)",
-          data,
+          data: labels.map((l) => totalsBySalesRep[l] ?? 0),
           backgroundColor: "rgba(153, 102, 255, 0.6)",
         },
       ],
@@ -200,12 +202,11 @@ export default function SalesOrdersSection() {
 
   const pieChartData = useMemo(() => {
     const labels = Object.keys(totalsBySalesRep);
-    const data = labels.map((l) => totalsBySalesRep[l] ?? 0);
     return {
       labels,
       datasets: [
         {
-          data,
+          data: labels.map((l) => totalsBySalesRep[l] ?? 0),
           backgroundColor: [
             "#FF6384",
             "#36A2EB",
@@ -288,20 +289,22 @@ export default function SalesOrdersSection() {
 
   // ============================== JSX =====================================
   return (
-    <div
+    <motion.div
       className="p-6 space-y-6 bg-white rounded-md shadow"
       ref={reportRef}
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.7 }}
     >
       <ToastContainer />
       <h1 className="text-2xl font-bold mb-4">Sales Orders Report</h1>
 
       {/* FILTERS ---------------------------------------------------------- */}
       <div className="flex flex-wrap items-center gap-4">
-        {/* quick period dropdown (optional) */}
         <div className="w-36">
           <Select
             value={selectedPeriod}
-            onValueChange={(v) => setSelectedPeriod(v as Period)}
+            onValueChange={(v) => handlePeriodChange(v as Period)}
           >
             <SelectTrigger>
               <SelectValue placeholder="Period" />
@@ -316,7 +319,6 @@ export default function SalesOrdersSection() {
           </Select>
         </div>
 
-        {/* RANGE PICKER -------------------------------------------------- */}
         <div className="w-[260px]">
           <DatePicker
             selectsRange
@@ -330,7 +332,6 @@ export default function SalesOrdersSection() {
           />
         </div>
 
-        {/* text filters */}
         <Input
           className="w-48"
           placeholder="Search by Customer..."
@@ -349,20 +350,34 @@ export default function SalesOrdersSection() {
         </Button>
       </div>
 
-      {/* helper label */}
       <p className="text-sm font-medium text-green-800">{periodLabel}</p>
 
       {/* SUMMARY CARD ----------------------------------------------------- */}
-      <div className="flex items-center justify-between bg-gray-200 rounded-lg p-4">
+      <motion.div
+        className="flex items-center justify-between bg-gray-200 rounded-lg p-4"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6 }}
+      >
         <div>
           <Label className="text-sm font-medium text-gray-700">
             Total Sales Orders Value
           </Label>
           <p className="text-3xl font-bold text-gray-900">
-            {new Intl.NumberFormat("en-ZA", {
-              style: "currency",
-              currency: "ZAR",
-            }).format(totalOrderValue)}
+            <CountUp
+              end={totalOrderValue}
+              duration={5}
+              separator=","
+              decimals={2}
+              prefix="R "
+              formattingFn={(val) =>
+                new Intl.NumberFormat("en-ZA", {
+                  style: "currency",
+                  currency: "ZAR",
+                  maximumFractionDigits: 2,
+                }).format(Number(val))
+              }
+            />
           </p>
         </div>
         <img
@@ -370,7 +385,7 @@ export default function SalesOrdersSection() {
           alt="South Africa Flag"
           className="w-8 h-8 object-contain"
         />
-      </div>
+      </motion.div>
 
       {/* CHARTS ----------------------------------------------------------- */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -521,6 +536,6 @@ export default function SalesOrdersSection() {
         </p>
       </div>
       <ToastContainer />
-    </div>
+    </motion.div>
   );
 }

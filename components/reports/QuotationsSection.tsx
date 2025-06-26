@@ -31,6 +31,8 @@ import {
 
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import CountUp from "react-countup";
+import { motion } from "framer-motion";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend);
 
@@ -44,27 +46,25 @@ function getPeriodRange(period: Period, base = new Date()): [Date, Date] {
 
   switch (period) {
     case "week": {
-      const diff = base.getDay(); // 0-6, Sun = 0
+      const diff = base.getDay();
       start.setDate(base.getDate() - diff);
       end.setDate(start.getDate() + 6);
       break;
     }
-    case "month": {
+    case "month":
       start.setDate(1);
       end.setMonth(start.getMonth() + 1, 0);
       break;
-    }
     case "quarter": {
       const qStart = Math.floor(base.getMonth() / 3) * 3;
       start.setMonth(qStart, 1);
       end.setMonth(qStart + 3, 0);
       break;
     }
-    case "year": {
+    case "year":
       start.setMonth(0, 1);
       end.setMonth(12, 0);
       break;
-    }
   }
   start.setHours(0, 0, 0, 0);
   end.setHours(23, 59, 59, 999);
@@ -142,20 +142,30 @@ export default function QuotationsReportPage() {
 
   const reportRef = useRef<HTMLDivElement>(null);
 
-  /* fetch */
+  /* fetch + 5-minute refresh */
   useEffect(() => {
-    (async () => {
+    let mounted = true;
+
+    const fetchEvents = async () => {
       try {
         setLoading(true);
         const res = await fetch("/api/events");
         if (!res.ok) throw new Error("Failed to fetch events");
+        if (!mounted) return;
         setEvents(await res.json());
       } catch (err: any) {
-        setError(err.message ?? "Unknown error");
+        if (mounted) setError(err.message ?? "Unknown error");
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
-    })();
+    };
+
+    fetchEvents();
+    const interval = setInterval(fetchEvents, 5 * 60 * 1000); // auto-refresh every 5 min
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   /* handler for quick-select */
@@ -321,7 +331,13 @@ export default function QuotationsReportPage() {
   }
 
   return (
-    <div className="p-6 space-y-8 bg-white rounded-md shadow max-w-screen-xl mx-auto" ref={reportRef}>
+    <motion.div
+      className="p-6 space-y-8 bg-white rounded-md shadow max-w-screen-xl mx-auto"
+      ref={reportRef}
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.7 }}
+    >
       <ToastContainer />
       <h1 className="text-3xl font-bold mb-4">Quotations Report</h1>
 
@@ -393,42 +409,78 @@ export default function QuotationsReportPage() {
       <p className="text-sm font-medium text-green-700">{periodLabel}</p>
 
       {/* summary */}
-      <div className="bg-gray-100 rounded-lg p-4 flex items-center justify-between">
+      <motion.div
+        className="bg-gray-100 rounded-lg p-4 flex items-center justify-between"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6 }}
+      >
         <div>
-          <h2 className="text-sm font-medium text-gray-700">Total Quotations Value (Active)</h2>
+          <h2 className="text-sm font-medium text-gray-700">
+            Total Quotations Value (Active)
+          </h2>
           <p className="text-3xl font-bold text-gray-900">
-            {new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" }).format(
-              totalQuotationValue
-            )}
+            <CountUp
+              end={totalQuotationValue}
+              duration={5}
+              separator=","
+              decimals={2}
+              prefix="R "
+              formattingFn={(val) =>
+                new Intl.NumberFormat("en-ZA", {
+                  style: "currency",
+                  currency: "ZAR",
+                  maximumFractionDigits: 2,
+                }).format(Number(val))
+              }
+            />
           </p>
         </div>
         <img src="/flags/circle.png" alt="South Africa" className="w-8 h-8 object-contain" />
-      </div>
+      </motion.div>
 
       {/* charts */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-white rounded-lg shadow p-4 h-[350px]">
-          <h2 className="text-lg font-semibold mb-2">Totals by Sales Rep (Active Quotations)</h2>
+          <h2 className="text-lg font-semibold mb-2">
+            Totals by Sales Rep (Active Quotations)
+          </h2>
           <Bar
             data={barChartData}
-            options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "top" } } }}
+            options={{
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { position: "top" } },
+            }}
           />
         </div>
         <div className="bg-white rounded-lg shadow p-4 h-[350px]">
-          <h2 className="text-lg font-semibold mb-2">Distribution by Sales Rep (Active Quotations)</h2>
+          <h2 className="text-lg font-semibold mb-2">
+            Distribution by Sales Rep (Active Quotations)
+          </h2>
           <Pie
             data={pieChartData}
-            options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } }}
+            options={{
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { position: "bottom" } },
+            }}
           />
         </div>
       </div>
 
       {/* all quotes status chart */}
       <div className="bg-white rounded-lg shadow p-4 h-[300px]">
-        <h2 className="text-lg font-semibold mb-2">All Quotations by Status (Bar Chart)</h2>
+        <h2 className="text-lg font-semibold mb-2">
+          All Quotations by Status (Bar Chart)
+        </h2>
         <Bar
           data={allQuotesByStatusChart}
-          options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "top" } } }}
+          options={{
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: "top" } },
+          }}
         />
       </div>
 
@@ -461,7 +513,9 @@ export default function QuotationsReportPage() {
                       year: "numeric",
                     })}
                   </td>
-                  <td className="px-4 py-2">{e.price ? `R${e.price.toFixed(2)}` : "-"}</td>
+                  <td className="px-4 py-2">
+                    {e.price ? `R${e.price.toFixed(2)}` : "-"}
+                  </td>
                   <td className="px-4 py-2">
                     <Select
                       value={statusUpdates[e.id] || e.status}
@@ -511,18 +565,20 @@ export default function QuotationsReportPage() {
       <div className="mt-8 p-4 bg-gray-50 rounded-lg">
         <h2 className="text-xl font-bold mb-2">Insights</h2>
         <p className="text-sm text-gray-700">
-          <strong>High Priority Customers:</strong> We identify high priority customers based on repeat business,
-          large enquiry sizes, and strong purchase intentions. They rank higher if they consistently follow through.
+          <strong>High Priority Customers:</strong> We identify high priority customers
+          based on repeat business, large enquiry sizes, and strong purchase
+          intentions. They rank higher if they consistently follow through.
         </p>
         <p className="text-sm text-gray-700 mt-2">
-          <strong>Top Companies:</strong> Companies are ranked by the total quotation value. We track the ratio of
-          quotes converting to POs to assess performance.
+          <strong>Top Companies:</strong> Companies are ranked by the total
+          quotation value. We track the ratio of quotes converting to POs to
+          assess performance.
         </p>
         <p className="text-sm text-gray-700 mt-2">
-          These metrics help us quickly identify areas of potential growth and effectively manage our quotations
-          strategy.
+          These metrics help us quickly identify areas of potential growth and
+          effectively manage our quotations strategy.
         </p>
       </div>
-    </div>
+    </motion.div>
   );
 }

@@ -31,6 +31,8 @@ import {
 
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
+import CountUp from "react-countup";
+import { motion } from "framer-motion"; // added for subtle animation
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend);
 
@@ -213,7 +215,13 @@ export default function RepByLineOfWorkPage() {
 
   /* ─────────── UI ─────────── */
   return (
-    <div ref={reportRef} className="space-y-10 bg-white rounded-md p-6 shadow">
+    <motion.div
+      ref={reportRef}
+      className="space-y-10 bg-white rounded-md p-6 shadow"
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.7 }}
+    >
       <ToastContainer />
       <h1 className="text-3xl font-bold mb-4">Sales Rep Contribution by Line-of-Work</h1>
 
@@ -263,24 +271,82 @@ export default function RepByLineOfWorkPage() {
       <p className="text-sm font-medium text-green-700">{rangeLabel}</p>
 
       {/* summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-gray-100 rounded-lg p-4">
+      <motion.div
+        className="grid grid-cols-2 md:grid-cols-4 gap-4"
+        initial="hidden"
+        animate="visible"
+        variants={{
+          hidden: {},
+          visible: {
+            transition: {
+              staggerChildren: 0.13,
+            },
+          },
+        }}
+      >
+        <motion.div
+          className="bg-gray-100 rounded-lg p-4"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.1 }}
+        >
           <h3 className="text-sm font-medium text-gray-700">Total Quotes (count)</h3>
-          <p className="text-2xl font-bold">{fmt(totalQuotes)}</p>
-        </div>
-        <div className="bg-gray-100 rounded-lg p-4">
+          <p className="text-2xl font-bold">
+            <CountUp end={totalQuotes} duration={5} separator="," />
+          </p>
+        </motion.div>
+        <motion.div
+          className="bg-gray-100 rounded-lg p-4"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.2 }}
+        >
           <h3 className="text-sm font-medium text-gray-700">Total Orders (count)</h3>
-          <p className="text-2xl font-bold">{fmt(totalOrders)}</p>
-        </div>
-        <div className="bg-gray-100 rounded-lg p-4">
+          <p className="text-2xl font-bold">
+            <CountUp end={totalOrders} duration={5} separator="," />
+          </p>
+        </motion.div>
+        <motion.div
+          className="bg-gray-100 rounded-lg p-4"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.3 }}
+        >
           <h3 className="text-sm font-medium text-gray-700">Total Quote Value</h3>
-          <p className="text-2xl font-bold">{fmt(totalQuoteVal, true)}</p>
-        </div>
-        <div className="bg-gray-100 rounded-lg p-4">
+          <p className="text-2xl font-bold">
+            <CountUp
+              end={totalQuoteVal}
+              duration={5}
+              separator=","
+              decimals={2}
+              prefix="R "
+              formattingFn={(val) =>
+                new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR", maximumFractionDigits: 2 }).format(Number(val))
+              }
+            />
+          </p>
+        </motion.div>
+        <motion.div
+          className="bg-gray-100 rounded-lg p-4"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.4 }}
+        >
           <h3 className="text-sm font-medium text-gray-700">Total Order Value</h3>
-          <p className="text-2xl font-bold">{fmt(totalOrderVal, true)}</p>
-        </div>
-      </div>
+          <p className="text-2xl font-bold">
+            <CountUp
+              end={totalOrderVal}
+              duration={5}
+              separator=","
+              decimals={2}
+              prefix="R "
+              formattingFn={(val) =>
+                new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR", maximumFractionDigits: 2 }).format(Number(val))
+              }
+            />
+          </p>
+        </motion.div>
+      </motion.div>
 
       {/* COUNT charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -454,6 +520,6 @@ export default function RepByLineOfWorkPage() {
           </tbody>
         </table>
       </div>
-    </div>
+    </motion.div>
   );
 }

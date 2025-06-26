@@ -33,6 +33,8 @@ import {
 
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
+import CountUp from "react-countup";
+import { motion } from "framer-motion";
 
 ChartJS.register(
   CategoryScale,
@@ -111,19 +113,29 @@ export default function ConversionOverviewSection() {
 
   const reportRef = useRef<HTMLDivElement>(null);
 
+  /* fetch + 5-minute refresh */
   useEffect(() => {
-    (async () => {
+    let mounted = true;
+
+    const fetchEvents = async () => {
       try {
         setLoading(true);
         const res = await fetch("/api/events");
         if (!res.ok) throw new Error("Fetch failed");
-        setEvents(await res.json());
+        if (mounted) setEvents(await res.json());
       } catch (err: any) {
         toast.error(err.message || "Error loading data");
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
-    })();
+    };
+
+    fetchEvents();
+    const interval = setInterval(fetchEvents, 5 * 60 * 1000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   const isInRange = (d: Date) => !start || !end || (d >= start && d <= end);
@@ -245,7 +257,13 @@ export default function ConversionOverviewSection() {
 
   /* ─────────── UI ─────────── */
   return (
-    <div ref={reportRef} className="space-y-8 bg-white rounded-md p-6 shadow">
+    <motion.div
+      ref={reportRef}
+      className="space-y-8 bg-white rounded-md p-6 shadow"
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.7 }}
+    >
       <ToastContainer />
       <h1 className="text-2xl font-bold mb-4">Sales vs Quotations Conversion</h1>
 
@@ -295,30 +313,63 @@ export default function ConversionOverviewSection() {
       <p className="text-sm font-medium text-green-700">{rangeLabel}</p>
 
       {/* summary cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-gray-100 rounded-lg p-4">
-          <h3 className="text-sm font-medium text-gray-700">Total Quotations Value</h3>
-          <p className="text-2xl font-bold text-gray-900">
-            {new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" }).format(
-              totalQuotes
-            )}
-          </p>
-        </div>
-        <div className="bg-gray-100 rounded-lg p-4">
-          <h3 className="text-sm font-medium text-gray-700">Total Sales Orders Value</h3>
-          <p className="text-2xl font-bold text-gray-900">
-            {new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" }).format(
-              totalOrders
-            )}
-          </p>
-        </div>
-        <div className="bg-gray-100 rounded-lg p-4">
-          <h3 className="text-sm font-medium text-gray-700">Overall Conversion</h3>
-          <p className="text-2xl font-bold text-gray-900">
-            {overallConv.toFixed(1)}%
-          </p>
-        </div>
-      </div>
+      <motion.div
+        className="grid grid-cols-1 md:grid-cols-3 gap-4"
+        initial="hidden"
+        animate="visible"
+        variants={{
+          hidden: {},
+          visible: {
+            transition: { staggerChildren: 0.15 },
+          },
+        }}
+      >
+        {[
+          {
+            title: "Total Quotations Value",
+            value: totalQuotes,
+          },
+          {
+            title: "Total Sales Orders Value",
+            value: totalOrders,
+          },
+          {
+            title: "Overall Conversion",
+            value: overallConv,
+            isPercent: true,
+          },
+        ].map((card, idx) => (
+          <motion.div
+            key={idx}
+            className="bg-gray-100 rounded-lg p-4"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: idx * 0.1 }}
+          >
+            <h3 className="text-sm font-medium text-gray-700">{card.title}</h3>
+            <p className="text-2xl font-bold text-gray-900">
+              {card.isPercent ? (
+                <CountUp end={card.value} duration={5} decimals={1} suffix="%" />
+              ) : (
+                <CountUp
+                  end={card.value}
+                  duration={5}
+                  separator=","
+                  decimals={2}
+                  prefix="R "
+                  formattingFn={(val) =>
+                    new Intl.NumberFormat("en-ZA", {
+                      style: "currency",
+                      currency: "ZAR",
+                      maximumFractionDigits: 2,
+                    }).format(Number(val))
+                  }
+                />
+              )}
+            </p>
+          </motion.div>
+        ))}
+      </motion.div>
 
       {/* charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -381,6 +432,6 @@ export default function ConversionOverviewSection() {
           <Pie data={pieOrders} options={{ responsive: true, maintainAspectRatio: false }} />
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
