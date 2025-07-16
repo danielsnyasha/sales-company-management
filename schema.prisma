@@ -93,3 +93,8 @@ model Company {
 
   @@map("companies")
 }
+//team members
+//dashboard with everything
+//pdf componets (report) parts.
+//authentication - user model (clerk) - intergration with mongo (merge)
+
