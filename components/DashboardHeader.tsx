@@ -25,7 +25,7 @@ export default function DashboardHeader() {
           <Image
             src="/images/logolcv.png"
             alt="LSCVSSC Logo"
-            width={120}
+            width={170}
             height={50}
             quality={100}
             priority

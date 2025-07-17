@@ -119,7 +119,7 @@ export default function TargetDashboardPage() {
 
   /* default: previous 6 full months to current */
   const today = new Date();
-  const startDefault = startOfMonth(new Date(today.getFullYear(), today.getMonth() - 5, 1));
+  const startDefault = startOfMonth(new Date(today.getFullYear(), today.getMonth() - 3, 1));
   const endDefault = endOfMonth(today);
 
   /* filters */
@@ -349,11 +349,11 @@ export default function TargetDashboardPage() {
         <ToastContainer />
 
         {/* informational banner */}
-        <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white rounded-lg p-6">
+        <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-purple-800 text-white rounded-lg p-6">
           <h1 className="text-3xl font-extrabold mb-1">Monthly Sales Targets</h1>
           <p className="text-sm leading-relaxed max-w-3xl">
             Every month our organisation aims for <strong>{fmt(MONTHLY_TARGET, true)}</strong> in
-            confirmed sales orders. Below you&rsquo;ll find a snapshot of the past six months
+            confirmed sales orders. Below you&rsquo;ll find a snapshot of the past four months
             compared to that target, along with variance highlights, top-performing sales
             representatives and line-of-work contributions. Use the quick filters or custom date
             picker to explore performance across any period.
