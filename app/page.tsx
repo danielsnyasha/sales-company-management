@@ -1,301 +1,479 @@
+/* app/(admin)/admin-portal/dashboard/page.tsx */
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Bar, Pie, Line } from "react-chartjs-2";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+
+import { ToastContainer, toast } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+import {
+  Bar,
+  Pie,
+  Doughnut,
+  PolarArea,
+  Line,
+} from "react-chartjs-2";
+
 import {
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
   BarElement,
+  ArcElement,
   LineElement,
   PointElement,
-  ArcElement,
   Title,
   Tooltip,
   Legend,
+  Filler,
+  RadialLinearScale,
 } from "chart.js";
-import { motion } from "framer-motion";
-import CountUp from "react-countup";
-import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import DatePicker from "react-datepicker";
-import "react-datepicker/dist/react-datepicker.css";
-import HomeBanner from "@/components/HomeBanner";
-import { Loader2 } from "lucide-react";
+import type { ChartData } from "chart.js";
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, ArcElement, Title, Tooltip, Legend);
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  ArrowLeft,
+  ArrowRight,
+  DollarSign,
+  FileText,
+  CheckCircle2,
+  Target,
+  Users,
+} from "lucide-react";
 
-// --------- PERIOD LOGIC ----------
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  ArcElement,
+  LineElement,
+  PointElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+  RadialLinearScale,
+);
+
+/* ───────────────────────── CONSTANTS / TYPES ───────────────────────── */
 const PERIOD_OPTIONS = ["week", "month", "quarter", "year"] as const;
-type Period = typeof PERIOD_OPTIONS[number];
+type Period = (typeof PERIOD_OPTIONS)[number];
 
+interface Event {
+  id: string;
+  eventType: "CGI" | "QUOTE" | "ORDER";
+  date: string;
+  quoteSent: boolean;
+  poReceived: boolean;
+  price?: number | null;
+  status: string;
+  salesRepresentative?: string | null;
+  lineOfWork?: string | null;
+}
+
+/* ───────────────────────── HELPERS ───────────────────────── */
 function getPeriodRange(period: Period, base = new Date()): [Date, Date] {
-  const start = new Date(base);
-  const end = new Date(base);
+  const s = new Date(base);
+  const e = new Date(base);
   switch (period) {
     case "week": {
-      const diff = base.getDay();
-      start.setDate(base.getDate() - diff);
-      end.setDate(start.getDate() + 6);
+      const dow = base.getDay();
+      s.setDate(base.getDate() - dow);
+      e.setDate(s.getDate() + 6);
       break;
     }
     case "month":
-      start.setDate(1);
-      end.setMonth(start.getMonth() + 1, 0);
+      s.setDate(1);
+      e.setMonth(s.getMonth() + 1, 0);
       break;
     case "quarter": {
-      const qStart = Math.floor(base.getMonth() / 3) * 3;
-      start.setMonth(qStart, 1);
-      end.setMonth(qStart + 3, 0);
+      const qm = Math.floor(base.getMonth() / 3) * 3;
+      s.setMonth(qm, 1);
+      e.setMonth(qm + 3, 0);
       break;
     }
     case "year":
-      start.setMonth(0, 1);
-      end.setMonth(12, 0);
+      s.setMonth(0, 1);
+      e.setMonth(12, 0);
       break;
   }
-  start.setHours(0, 0, 0, 0);
-  end.setHours(23, 59, 59, 999);
-  return [start, end];
+  s.setHours(0, 0, 0, 0);
+  e.setHours(23, 59, 59, 999);
+  return [s, e];
 }
 
-// --------- DUMMY MAPS (if needed) ----------
-const LINE_OF_WORK_LABEL: Record<string, string> = {
-  EC: "Electro Motors",
-  SSC: "Steel Service Center",
-  SMP: "Structural Mechanical & Plate",
-  OEM: "OEM",
-  Unknown: "Other",
-};
+function fmt(
+  n: number,
+  currency = false,
+  dec = 2,
+  curr = "ZAR",
+  locale = "en-ZA",
+) {
+  return currency
+    ? new Intl.NumberFormat(locale, {
+        style: "currency",
+        currency: curr,
+        maximumFractionDigits: dec,
+      }).format(n)
+    : new Intl.NumberFormat(locale, {
+        maximumFractionDigits: dec,
+      }).format(n);
+}
 
-// --------- MAIN COMPONENT ----------
-export default function DashboardPage() {
-  // ----- State -----
-  const [events, setEvents] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+/* ───────────────────────── PAGE ───────────────────────── */
+export default function AdminDashboardPage() {
+  const [events, setEvents] = useState<Event[]>([]);
   const [period, setPeriod] = useState<Period>("week");
-  const [range, setRange] = useState<[Date | null, Date | null]>(() => getPeriodRange("week"));
+  const [range, setRange] = useState<[Date | null, Date | null]>(() =>
+    getPeriodRange("week"),
+  );
+  const [loading, setLoading] = useState(false);
   const [start, end] = range;
-  const [salesRep, setSalesRep] = useState<string>("all");
+  const pageRef = useRef<HTMLDivElement>(null);
 
-  // ----- Fetch Data -----
+  /* fetch */
   useEffect(() => {
     let mounted = true;
-    const fetchAll = async () => {
+    const fetchData = async () => {
       try {
         setLoading(true);
         const res = await fetch("/api/events");
-        if (!res.ok) throw new Error("Data fetch failed");
-        if (!mounted) return;
-        setEvents(await res.json());
-      } catch {
-        // ignore
+        if (!res.ok) throw new Error("Failed to fetch");
+        if (mounted) setEvents(await res.json());
+      } catch (e: any) {
+        toast.error(e.message);
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     };
-    fetchAll();
-    const interval = setInterval(fetchAll, 5 * 60 * 1000);
-    return () => { mounted = false; clearInterval(interval); };
+    fetchData();
+    const id = setInterval(fetchData, 5 * 60 * 1000);
+    return () => {
+      mounted = false;
+      clearInterval(id);
+    };
   }, []);
 
-  // ----- Filter helpers -----
-  const isInRange = (d: Date) => !start || !end || (d >= start && d <= end);
-  const repOptions = useMemo(() => {
-    const reps = new Set(events.map(e => e.salesRepresentative ?? "Unknown"));
-    return Array.from(reps);
-  }, [events]);
+  const inRange = (d: Date) => (!start || !end ? true : d >= start && d <= end);
 
-  // ----- DATA AGGREGATION -----
-  const filteredEvents = useMemo(
-    () => events.filter(e => isInRange(new Date(e.date))),
-    [events, start, end]
-  );
-  const byRep = useMemo(() => salesRep === "all"
-    ? filteredEvents
-    : filteredEvents.filter(e => (e.salesRepresentative ?? "Unknown") === salesRep),
-    [filteredEvents, salesRep]
+  /* filtered arrays */
+  const quotes = useMemo(
+    () =>
+      events.filter(
+        (e) =>
+          e.quoteSent &&
+          !["cancelled", "completed", "company blacklisted"].includes(
+            e.status.toLowerCase(),
+          ) &&
+          inRange(new Date(e.date)),
+      ),
+    [events, start, end],
   );
 
-  // Quotations
-  const quotations = byRep.filter(e => e.quoteSent && !["not interested in doing business with us", "company blacklisted", "completed", "cancelled"].includes((e.status ?? "").toLowerCase()));
-  const quotationsValue = quotations.reduce((sum, e) => sum + (e.price ?? 0), 0);
-  const quotationsCount = quotations.length;
+  const orders = useMemo(
+    () =>
+      events.filter(
+        (e) => e.eventType === "ORDER" && e.poReceived && inRange(new Date(e.date)),
+      ),
+    [events, start, end],
+  );
 
-  // Orders
-  const orders = byRep.filter(e => e.eventType === "ORDER" && e.poReceived);
-  const ordersValue = orders.reduce((sum, e) => sum + (e.price ?? 0), 0);
-  const ordersCount = orders.length;
+  const reps = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          events.map((e) => e.salesRepresentative?.trim()).filter(Boolean) as string[],
+        ),
+      ),
+    [events],
+  );
 
-  // Conversion
-  const convPercentCount = quotationsCount ? (ordersCount / quotationsCount) * 100 : 0;
-  const convPercentValue = quotationsValue ? (ordersValue / quotationsValue) * 100 : 0;
+  const lineWorks = useMemo(
+    () =>
+      Array.from(
+        new Set(events.map((e) => e.lineOfWork || "Unknown")),
+      ),
+    [events],
+  );
 
-  // --- Sales Orders Over Time ---
-  const timeLabels = (() => {
-    // Show by day for week, by week for month, by month for quarter/year
-    if (period === "week") {
-      return Array.from({ length: 7 }).map((_, i) => {
-        const d = new Date(start as Date);
-        d.setDate(d.getDate() + i);
-        return d.toLocaleDateString("en-GB", { weekday: "short" });
-      });
-    }
-    if (period === "month") {
-      return Array.from({ length: 4 }).map((_, i) => `W${i + 1}`);
-    }
-    if (period === "quarter") {
-      return Array.from({ length: 3 }).map((_, i) => `M${i + 1}`);
-    }
-    return Array.from({ length: 12 }).map((_, i) => new Date(0, i).toLocaleString("en-GB", { month: "short" }));
-  })();
-  const ordersByTime = (() => {
-    if (!start || !end) return [];
-    let counts = Array(timeLabels.length).fill(0);
-    let values = Array(timeLabels.length).fill(0);
-    orders.forEach(e => {
-      const d = new Date(e.date);
-      let idx = 0;
-      if (period === "week") idx = Math.min(Math.floor((d.getTime() - (start as Date).getTime()) / (24*60*60*1000)), 6);
-      if (period === "month") idx = Math.min(Math.floor((d.getTime() - (start as Date).getTime()) / (7*24*60*60*1000)), 3);
-      if (period === "quarter") idx = Math.min(Math.floor((d.getMonth() - (start as Date).getMonth())), 2);
-      if (period === "year") idx = d.getMonth();
-      counts[idx] = (counts[idx] ?? 0) + 1;
-      values[idx] = (values[idx] ?? 0) + (e.price ?? 0);
-    });
-    return { counts, values };
-  })();
+  /* totals */
+  const quotesValue = quotes.reduce((s, e) => s + (e.price ?? 0), 0);
+  const ordersValue = orders.reduce((s, e) => s + (e.price ?? 0), 0);
+  const convRate = quotesValue ? (ordersValue / quotesValue) * 100 : 0;
 
-  // --- Top Sales Rep, Top Line-of-Work ---
-  const repAgg: Record<string, { quotes: number, orders: number, quoteValue: number, orderValue: number }> = {};
-  filteredEvents.forEach(e => {
-    const rep = e.salesRepresentative ?? "Unknown";
-    repAgg[rep] = repAgg[rep] || { quotes: 0, orders: 0, quoteValue: 0, orderValue: 0 };
-    if (e.quoteSent && !["not interested in doing business with us", "company blacklisted", "completed", "cancelled"].includes((e.status ?? "").toLowerCase())) {
-      repAgg[rep].quotes += 1;
-      repAgg[rep].quoteValue += e.price ?? 0;
-    }
-    if (e.eventType === "ORDER" && e.poReceived) {
-      repAgg[rep].orders += 1;
-      repAgg[rep].orderValue += e.price ?? 0;
-    }
+  /* ─────────── DATASETS ─────────── */
+  /* per rep maps */
+  const mapQuotesRep: Record<string, number> = {};
+  const mapOrdersRep: Record<string, number> = {};
+  reps.forEach((r) => {
+    mapQuotesRep[r] = 0;
+    mapOrdersRep[r] = 0;
   });
-  const topRep = Object.entries(repAgg).sort((a, b) => b[1].orderValue - a[1].orderValue)[0]?.[0] ?? "Unknown";
+  quotes.forEach((q) => {
+    const r = q.salesRepresentative || "Unknown";
+    mapQuotesRep[r] += q.price ?? 0;
+  });
+  orders.forEach((o) => {
+    const r = o.salesRepresentative || "Unknown";
+    mapOrdersRep[r] += o.price ?? 0;
+  });
+  const repQuoteVals = reps.map((r) => mapQuotesRep[r]);
+  const repOrderVals = reps.map((r) => mapOrdersRep[r]);
+  const repConvVals = reps.map((_, i) =>
+    repQuoteVals[i] ? +(repOrderVals[i] / repQuoteVals[i]) * 100 : 0,
+  );
 
-  // --- Line of Work breakdown ---
-  const lwAgg: Record<string, { quoteCount: number, orderCount: number, quoteValue: number, orderValue: number }> = {};
-  filteredEvents.forEach(e => {
-    const lw = e.lineOfWork ?? "Unknown";
-    lwAgg[lw] = lwAgg[lw] || { quoteCount: 0, orderCount: 0, quoteValue: 0, orderValue: 0 };
-    if (e.quoteSent) {
-      lwAgg[lw].quoteCount += 1;
-      lwAgg[lw].quoteValue += e.price ?? 0;
-    }
-    if (e.eventType === "ORDER" && e.poReceived) {
-      lwAgg[lw].orderCount += 1;
-      lwAgg[lw].orderValue += e.price ?? 0;
-    }
+  /* per line-of-work maps */
+  const lineQuoteCount: Record<string, number> = {};
+  const lineOrderCount: Record<string, number> = {};
+  const lineQuoteVal: Record<string, number> = {};
+  const lineOrderVal: Record<string, number> = {};
+
+  lineWorks.forEach((lw) => {
+    lineQuoteCount[lw] = 0;
+    lineOrderCount[lw] = 0;
+    lineQuoteVal[lw] = 0;
+    lineOrderVal[lw] = 0;
   });
 
-  // --- Prepare CHARTS DATA ---
-  // Bar: Sales/Quotes by Rep
-  const barByRep = {
-    labels: Object.keys(repAgg),
+  quotes.forEach((q) => {
+    const lw = q.lineOfWork || "Unknown";
+    lineQuoteCount[lw] += 1;
+    lineQuoteVal[lw] += q.price ?? 0;
+  });
+  orders.forEach((o) => {
+    const lw = o.lineOfWork || "Unknown";
+    lineOrderCount[lw] += 1;
+    lineOrderVal[lw] += o.price ?? 0;
+  });
+
+  const lwQuoteCounts = lineWorks.map((lw) => lineQuoteCount[lw]);
+  const lwOrderCounts = lineWorks.map((lw) => lineOrderCount[lw]);
+  const lwQuoteVals = lineWorks.map((lw) => lineQuoteVal[lw]);
+  const lwOrderVals = lineWorks.map((lw) => lineOrderVal[lw]);
+  const lwConvVals = lineWorks.map((_, i) =>
+    lwQuoteVals[i] ? +(lwOrderVals[i] / lwQuoteVals[i]) * 100 : 0,
+  );
+
+  /* 1 - mixed bar/line by rep (value + conv) */
+  const mixedByRep: ChartData<"bar" | "line", number[], string> = {
+    labels: reps,
     datasets: [
       {
-        label: "Quotations (ZAR)",
-        data: Object.values(repAgg).map(v => v.quoteValue),
-        backgroundColor: "rgba(36, 163, 101, 0.7)",
+        type: "bar",
+        label: "Quotation value",
+        data: repQuoteVals,
+        backgroundColor: "rgba(54,162,235,0.7)",
+        borderRadius: 4,
       },
       {
-        label: "Sales Orders (ZAR)",
-        data: Object.values(repAgg).map(v => v.orderValue),
-        backgroundColor: "rgba(37, 99, 235, 0.7)",
+        type: "bar",
+        label: "Order value",
+        data: repOrderVals,
+        backgroundColor: "rgba(75,192,192,0.7)",
+        borderRadius: 4,
+      },
+      {
+        type: "line",
+        label: "Conversion %",
+        data: repConvVals,
+        yAxisID: "y1",
+        tension: 0.4,
+        borderWidth: 2,
+        pointRadius: 3,
       },
     ],
   };
-  // Pie: Distribution by Line-of-Work
-  const lwLabels = Object.keys(lwAgg).map(k => LINE_OF_WORK_LABEL[k] ?? k);
-  const lwQuoteVals = Object.values(lwAgg).map(v => v.quoteValue);
-  const lwOrderVals = Object.values(lwAgg).map(v => v.orderValue);
-  const pieQuotesByLW = {
-    labels: lwLabels,
+
+  /* 2 - horizontal counts by rep */
+  const countsRep: ChartData<"bar", number[], string> = {
+    labels: reps,
+    datasets: [
+      {
+        label: "Quotes (count)",
+        data: reps.map((r) =>
+          quotes.filter((q) => (q.salesRepresentative || "Unknown") === r).length,
+        ),
+        backgroundColor: "#4F46E5",
+      },
+      {
+        label: "Orders (count)",
+        data: reps.map((r) =>
+          orders.filter((o) => (o.salesRepresentative || "Unknown") === r).length,
+        ),
+        backgroundColor: "#059669",
+      },
+    ],
+  };
+
+  /* 3 - polar conv % by rep */
+  const polarConv: ChartData<"polarArea", number[], string> = {
+    labels: reps,
+    datasets: [
+      {
+        data: repConvVals,
+        backgroundColor: reps.map(
+          (_, i) =>
+            ["#E11D48", "#F97316", "#84CC16", "#22D3EE", "#8B5CF6", "#EC4899"][
+              i % 6
+            ],
+        ),
+      },
+    ],
+  };
+
+  /* 4 - stacked counts by line-of-work */
+  const stackedCountsLW: ChartData<"bar", number[], string> = {
+    labels: lineWorks,
+    datasets: [
+      {
+        label: "Quotes (count)",
+        data: lwQuoteCounts,
+        backgroundColor: "#0EA5E9",
+        stack: "stack1",
+      },
+      {
+        label: "Orders (count)",
+        data: lwOrderCounts,
+        backgroundColor: "#10B981",
+        stack: "stack1",
+      },
+    ],
+  };
+
+  /* 5 - stacked values by line-of-work */
+  const stackedValuesLW: ChartData<"bar", number[], string> = {
+    labels: lineWorks,
+    datasets: [
+      {
+        label: "Quote value",
+        data: lwQuoteVals,
+        backgroundColor: "#9333EA",
+        stack: "stack2",
+      },
+      {
+        label: "Order value",
+        data: lwOrderVals,
+        backgroundColor: "#ECB806",
+        stack: "stack2",
+      },
+    ],
+  };
+
+  /* 6 - pie counts share by line-of-work */
+  const pieCountsLW: ChartData<"pie", number[], string> = {
+    labels: lineWorks,
+    datasets: [
+      {
+        data: lwQuoteCounts,
+        backgroundColor: lineWorks.map(
+          (_, i) =>
+            ["#A78BFA", "#FCA5A5", "#34D399", "#F59E0B", "#818CF8", "#F472B6"][
+              i % 6
+            ],
+        ),
+      },
+    ],
+  };
+
+  /* 7 - pie value share by line-of-work */
+  const pieValuesLW: ChartData<"pie", number[], string> = {
+    labels: lineWorks,
     datasets: [
       {
         data: lwQuoteVals,
-        backgroundColor: [
-          "#10B981", "#2563EB", "#F59E42", "#A78BFA", "#FBBF24", "#34D399", "#818CF8", "#F87171"
-        ],
+        backgroundColor: lineWorks.map(
+          (_, i) =>
+            ["#67E8F9", "#C4B5FD", "#FDE047", "#FB7185", "#86EFAC", "#FACC15"][
+              i % 6
+            ],
+        ),
       },
     ],
   };
-  const pieOrdersByLW = {
-    labels: lwLabels,
+
+  /* 8 - doughnut overall quotes vs orders value */
+  const doughnutTotal: ChartData<"doughnut", number[], string> = {
+    labels: ["Quotes", "Orders"],
     datasets: [
       {
-        data: lwOrderVals,
-        backgroundColor: [
-          "#6366F1", "#F59E42", "#A78BFA", "#10B981", "#FBBF24", "#2563EB", "#34D399", "#F87171"
-        ],
+        data: [quotesValue, ordersValue],
+        backgroundColor: ["#0EA5E9", "#10B981"],
       },
     ],
   };
 
-  // Trend Line: Sales Orders Value over time
-  const lineOrders = {
-    labels: timeLabels,
-    datasets: [
-      {
-        label: "Sales Orders Value (ZAR)",
-        data: ordersByTime.values,
-        fill: true,
-        borderColor: "#2563EB",
-        backgroundColor: "rgba(37,99,235,0.07)",
-        tension: 0.3,
-      },
-    ],
+  /* pdf */
+  const downloadPDF = async () => {
+    if (!pageRef.current) return;
+    const canvas = await html2canvas(pageRef.current, { scale: 2 });
+    const pdf = new jsPDF("p", "mm", "a4");
+    pdf.addImage(
+      canvas.toDataURL("image/png"),
+      "PNG",
+      0,
+      0,
+      pdf.internal.pageSize.getWidth(),
+      (canvas.height * pdf.internal.pageSize.getWidth()) / canvas.width,
+    );
+    pdf.save("dashboard.pdf");
   };
 
-  // --------- COLOR/STYLE VARS ---------
-  const cardClass = "rounded-xl shadow-lg bg-gradient-to-br from-white via-gray-50 to-emerald-50 px-6 py-4 flex flex-col justify-between";
-  const labelClass = "text-xs uppercase tracking-wider text-gray-600";
-  const valClass = "text-3xl font-bold text-emerald-700";
-  const sectionTitle = "font-bold text-lg text-blue-900 mb-1";
-  const smallText = "text-xs text-gray-500 mt-1";
-
-  // --------- UI ---------
+  /* ───────────────────────── RENDER ───────────────────────── */
   return (
-    <div className="min-h-screen w-full flex flex-col bg-gradient-to-tr from-emerald-50 via-blue-50 to-yellow-50">
-      {/* Banner */}
-      <HomeBanner
-        title="Business Intelligence Dashboard"
-        description="Get a complete, real-time picture of your business performance. All your orders, quotes, sales reps and line-of-work breakdowns in one visually powerful display."
-        className="mb-8"
-      />
+    <motion.div
+      ref={pageRef}
+      className="space-y-8 p-6 max-w-screen-2xl mx-auto bg-white rounded-md shadow"
+      initial={{ opacity: 0, y: 25 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.6 }}
+    >
+      <ToastContainer />
+      <h1 className="text-3xl font-extrabold mb-2">
+        LCVSSC • Sales Intelligence
+      </h1>
 
-      {/* Filters */}
-      <motion.div
-        className="flex items-center flex-wrap gap-4 mb-5 px-10"
-        initial={{ opacity: 0, y: -16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.7 }}
-      >
-        <div className="w-32">
-          <Select value={period} onValueChange={v => {
-            setPeriod(v as Period);
-            setRange(getPeriodRange(v as Period));
-          }}>
+      {/* FILTERS */}
+      <div className="flex flex-wrap items-end gap-4">
+        <div className="w-40">
+          <Label>Quick Period</Label>
+          <Select
+            value={period}
+            onValueChange={(v) => {
+              setPeriod(v as Period);
+              setRange(getPeriodRange(v as Period));
+            }}
+          >
             <SelectTrigger>
               <SelectValue placeholder="Period" />
             </SelectTrigger>
             <SelectContent>
-              {PERIOD_OPTIONS.map(p => (
-                <SelectItem key={p} value={p}>{p.toUpperCase()}</SelectItem>
+              {PERIOD_OPTIONS.map((p) => (
+                <SelectItem key={p} value={p}>
+                  {p.toUpperCase()}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
-        <div className="w-[260px]">
+
+        <div>
+          <Label>Date Range</Label>
           <DatePicker
             selectsRange
             startDate={start}
@@ -303,157 +481,296 @@ export default function DashboardPage() {
             onChange={(r) => setRange(r as [Date | null, Date | null])}
             isClearable
             dateFormat="dd MMM yyyy"
-            className="w-full border border-gray-300 rounded p-2"
-            placeholderText="Select range"
+            className="border rounded p-2 w-[260px]"
           />
         </div>
-        <div className="w-56">
-          <Select value={salesRep} onValueChange={setSalesRep}>
-            <SelectTrigger>
-              <SelectValue placeholder="All Sales Reps" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Sales Reps</SelectItem>
-              {repOptions.map(r => (
-                <SelectItem key={r} value={r}>{r}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </motion.div>
 
-      {/* Loading */}
-      {loading && (
-        <div className="flex justify-center items-center h-64">
-          <Loader2 className="animate-spin w-10 h-10 text-emerald-600" />
-        </div>
-      )}
+        <Button variant="outline" className="h-10" onClick={downloadPDF}>
+          Download PDF
+        </Button>
+      </div>
 
-      {/* MAIN VISUAL GRID */}
-      {!loading && (
+      {/* SUMMARY */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {[
+          { label: "Quotation value", val: quotesValue, color: "bg-blue-100" },
+          { label: "Order value", val: ordersValue, color: "bg-emerald-100" },
+          { label: "Conversion %", val: convRate, color: "bg-yellow-100", pct: true },
+        ].map((c) => (
+          <div
+            key={c.label}
+            className={`${c.color} p-4 rounded-lg flex flex-col`}
+          >
+            <span className="text-sm font-medium">{c.label}</span>
+            <span className="text-2xl font-bold">
+              {c.pct ? `${c.val.toFixed(1)}%` : fmt(c.val, true)}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* VISUALS ─ eight charts in 4x2 grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* 1 */}
+        <div className="bg-white rounded-lg shadow p-4 h-[400px]">
+          <h2 className="font-semibold mb-1">Value & Conversion by Rep</h2>
+          <Bar
+            data={mixedByRep as unknown as ChartData<"bar", number[], string>}
+            options={{
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: {
+                y: { beginAtZero: true },
+                y1: {
+                  position: "right",
+                  min: 0,
+                  max: 100,
+                  grid: { drawOnChartArea: false },
+                  ticks: { callback: (v) => `${v}%` },
+                },
+              },
+              plugins: { legend: { position: "top" } },
+            }}
+          />
+        </div>
+
+        {/* 2 */}
+        <div className="bg-white rounded-lg shadow p-4 h-[400px]">
+          <h2 className="font-semibold mb-1">Quote vs Order Counts • Rep</h2>
+          <Bar
+            data={countsRep}
+            options={{
+              indexAxis: "y",
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { position: "top" } },
+              scales: { x: { beginAtZero: true } },
+            }}
+          />
+        </div>
+
+        {/* 3 */}
+        <div className="bg-white rounded-lg shadow p-4 h-[400px]">
+          <h2 className="font-semibold mb-1">Rep Conversion % • Polar</h2>
+          <PolarArea
+            data={polarConv}
+            options={{ responsive: true, maintainAspectRatio: false }}
+          />
+        </div>
+
+        {/* 4 */}
+        <div className="bg-white rounded-lg shadow p-4 h-[400px]">
+          <h2 className="font-semibold mb-1">Counts • Line-of-Work (stack)</h2>
+          <Bar
+            data={stackedCountsLW}
+            options={{
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: { x: { stacked: true }, y: { stacked: true } },
+              plugins: { legend: { position: "top" } },
+            }}
+          />
+        </div>
+
+        {/* 5 */}
+        <div className="bg-white rounded-lg shadow p-4 h-[400px]">
+          <h2 className="font-semibold mb-1">Value • Line-of-Work (stack)</h2>
+          <Bar
+            data={stackedValuesLW}
+            options={{
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: { x: { stacked: true }, y: { stacked: true } },
+              plugins: { legend: { position: "top" } },
+            }}
+          />
+        </div>
+
+        {/* 6 */}
+        <div className="bg-white rounded-lg shadow p-4 h-[400px]">
+          <h2 className="font-semibold mb-1">Quote Count Share • LoW</h2>
+          <Pie
+            data={pieCountsLW}
+            options={{ responsive: true, maintainAspectRatio: false }}
+          />
+        </div>
+
+        {/* 7 */}
+        <div className="bg-white rounded-lg shadow p-4 h-[400px]">
+          <h2 className="font-semibold mb-1">Quote Value Share • LoW</h2>
+          <Pie
+            data={pieValuesLW}
+            options={{ responsive: true, maintainAspectRatio: false }}
+          />
+        </div>
+
+        {/* 8 */}
+        <div className="bg-white rounded-lg shadow p-4 h-[400px]">
+          <h2 className="font-semibold mb-1">Total Quotes vs Orders</h2>
+          <Doughnut
+            data={doughnutTotal}
+            options={{ responsive: true, maintainAspectRatio: false }}
+          />
+        </div>
+      </div>
+
+      {/* BOTTOM BANNER */}
+      <Banner events={events} />
+    </motion.div>
+  );
+}
+
+/* ───────────────────────── BANNER ───────────────────────── */
+type Stats = { salesOrders: number; quotations: number; csis: number };
+interface BannerEvent extends Event {}
+
+function Banner({ events }: { events: BannerEvent[] }) {
+  const slides = useMemo(() => buildSlides(events), [events]);
+  const [idx, setIdx] = useState(0);
+
+  useEffect(() => {
+    if (slides.length < 2) return;
+    const id = setInterval(() => setIdx((p) => (p + 1) % slides.length), 5000);
+    return () => clearInterval(id);
+  }, [slides.length]);
+
+  if (!slides.length)
+    return (
+      <div className="h-[280px] flex items-center justify-center bg-gray-100 rounded-lg">
+        No Data
+      </div>
+    );
+
+  const slide = slides[idx];
+  return (
+    <div className="relative h-[280px] rounded-lg overflow-hidden bg-gradient-to-r from-purple-700 via-indigo-600 to-blue-500 text-white">
+      <button
+        className="absolute left-3 top-3 p-2 hover:bg-white/30 rounded-full"
+        onClick={() => setIdx((p) => (p === 0 ? slides.length - 1 : p - 1))}
+      >
+        <ArrowLeft />
+      </button>
+      <button
+        className="absolute right-3 top-3 p-2 hover:bg-white/30 rounded-full"
+        onClick={() => setIdx((p) => (p + 1) % slides.length)}
+      >
+        <ArrowRight />
+      </button>
+
+      <AnimatePresence mode="popLayout">
         <motion.div
-          className="grid grid-cols-12 gap-6 px-10"
-          initial={{ opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.9 }}
+          key={slide.id}
+          className="w-full h-full flex flex-col items-center justify-center text-center p-6"
+          initial={{ opacity: 0, scale: 0.9, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.9, y: -20 }}
+          transition={{ duration: 0.45 }}
         >
-          {/* SUMMARY CARDS */}
-          <div className="col-span-3 flex flex-col gap-4">
-            <motion.div className={cardClass} initial={{ scale: 0.9 }} animate={{ scale: 1 }}>
-              <span className={labelClass}>Quotations Value</span>
-              <span className={valClass}>
-                <CountUp
-                  end={quotationsValue}
-                  duration={3}
-                  decimals={2}
-                  separator=","
-                  prefix="R "
-                  formattingFn={v => new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR", maximumFractionDigits: 2 }).format(Number(v))}
-                />
-              </span>
-              <span className={smallText}>Total for period</span>
-            </motion.div>
-            <motion.div className={cardClass} initial={{ scale: 0.9 }} animate={{ scale: 1 }}>
-              <span className={labelClass}>Sales Orders Value</span>
-              <span className={valClass}>
-                <CountUp
-                  end={ordersValue}
-                  duration={3}
-                  decimals={2}
-                  separator=","
-                  prefix="R "
-                  formattingFn={v => new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR", maximumFractionDigits: 2 }).format(Number(v))}
-                />
-              </span>
-              <span className={smallText}>Total for period</span>
-            </motion.div>
-            <motion.div className={cardClass + " bg-gradient-to-tr from-blue-100 to-emerald-100"} initial={{ scale: 0.9 }} animate={{ scale: 1 }}>
-              <span className={labelClass}>Conversion % (Orders/Quotes)</span>
-              <span className={valClass}>
-                <CountUp end={convPercentValue} decimals={1} suffix="%" duration={2} />
-              </span>
-              <span className={smallText}>By value</span>
-            </motion.div>
-            <motion.div className={cardClass + " bg-gradient-to-tr from-emerald-100 to-yellow-100"} initial={{ scale: 0.9 }} animate={{ scale: 1 }}>
-              <span className={labelClass}>Top Sales Rep</span>
-              <span className="text-xl font-semibold text-blue-900">{topRep}</span>
-              <span className={smallText}>By order value</span>
-            </motion.div>
-          </div>
-          {/* CHARTS */}
-          <div className="col-span-9 grid grid-cols-3 gap-6">
-            {/* Orders Over Time (Line) */}
-            <div className="rounded-2xl shadow bg-white p-4 col-span-3">
-              <h2 className={sectionTitle}>Sales Orders Value Over Time</h2>
-              <Line
-                data={lineOrders}
-                height={80}
-                options={{
-                  responsive: true,
-                  plugins: { legend: { display: false } },
-                  scales: { y: { beginAtZero: true } },
-                }}
-              />
-            </div>
-            {/* Bar: Rep performance */}
-            <div className="rounded-2xl shadow bg-white p-4 col-span-2">
-              <h2 className={sectionTitle}>Performance by Sales Rep</h2>
-              <Bar
-                data={barByRep}
-                height={90}
-                options={{
-                  responsive: true,
-                  plugins: { legend: { position: "top" } },
-                  scales: { y: { beginAtZero: true } },
-                }}
-              />
-            </div>
-            {/* Pie: Line-of-Work Distribution */}
-            <div className="rounded-2xl shadow bg-white p-4 col-span-1 flex flex-col items-center justify-center">
-              <h2 className={sectionTitle}>Orders by Line of Work</h2>
-              <Pie
-                data={pieOrdersByLW}
-                width={140}
-                height={140}
-                options={{ plugins: { legend: { position: "right" } } }}
-              />
-              <span className={smallText}>Share of each segment</span>
-            </div>
-            {/* Pie: Quotes by Line-of-Work */}
-            <div className="rounded-2xl shadow bg-white p-4 col-span-1 flex flex-col items-center justify-center">
-              <h2 className={sectionTitle}>Quotes by Line of Work</h2>
-              <Pie
-                data={pieQuotesByLW}
-                width={140}
-                height={140}
-                options={{ plugins: { legend: { position: "right" } } }}
-              />
-              <span className={smallText}>Share of each segment</span>
-            </div>
-            {/* Insights */}
-            <div className="rounded-2xl shadow bg-white p-4 col-span-2 flex flex-col">
-              <h2 className={sectionTitle}>Key Insights</h2>
-              <ul className="text-gray-700 leading-tight">
-                <li>
-                  <b>{topRep}</b> leads in order value this period.
-                </li>
-                <li>
-                  Conversion by value: <b>{convPercentValue.toFixed(1)}%</b> | by count: <b>{convPercentCount.toFixed(1)}%</b>
-                </li>
-                <li>
-                  Top line-of-work: <b>
-                    {lwLabels[lwOrderVals.indexOf(Math.max(...lwOrderVals))] || "N/A"}
-                  </b>
-                </li>
-                <li>
-                  Total quotations sent: <b>{quotationsCount}</b>
-                  , Orders received: <b>{ordersCount}</b>
-                </li>
-              </ul>
-            </div>
-          </div>
+          <h2 className="text-2xl font-bold">{slide.title}</h2>
+          <p className="text-white/90 mb-4">{slide.subtitle}</p>
+
+          {"stats" in slide ? (
+            <BannerStats stats={slide.stats} />
+          ) : slide.id === "target" ? (
+            <TargetSlide />
+          ) : (
+            <RepsSlide reps={slide.reps} />
+          )}
         </motion.div>
-      )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function buildSlides(evs: BannerEvent[]) {
+  const now = Date.now();
+  const byDays = (d: number) =>
+    evs.filter((e) => now - new Date(e.date).getTime() <= d * 864e5);
+  const periodStats = (arr: BannerEvent[]): Stats => {
+    let so = 0,
+      qu = 0;
+    arr.forEach((e) => {
+      if (e.eventType === "ORDER" && e.poReceived) so += e.price ?? 0;
+      if (e.quoteSent) qu += e.price ?? 0;
+    });
+    return { salesOrders: so, quotations: qu, csis: arr.length };
+  };
+
+  const week = periodStats(byDays(7));
+  const month = periodStats(byDays(30));
+  const quarter = periodStats(
+    evs.filter((e) => {
+      const d = new Date(e.date);
+      const start = new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3, 1);
+      return d >= start;
+    }),
+  );
+  const year = periodStats(
+    evs.filter((e) => new Date(e.date).getFullYear() === new Date().getFullYear()),
+  );
+
+  const reps = Array.from(
+    new Set(
+      evs.map((e) => e.salesRepresentative?.trim()).filter(Boolean) as string[],
+    ),
+  );
+
+  return [
+    { id: "w", title: "Weekly Overview", subtitle: "Last 7 days", stats: week },
+    { id: "m", title: "Monthly Overview", subtitle: "Last 30 days", stats: month },
+    { id: "q", title: "Quarter-to-Date", subtitle: "Current quarter", stats: quarter },
+    { id: "y", title: "Year-to-Date", subtitle: "Current year", stats: year },
+    { id: "target", title: "Sales Target", subtitle: "R7.5 M / month" },
+    { id: "reps", title: "Sales Team", subtitle: "Active reps", reps },
+  ];
+}
+
+function BannerStats({ stats }: { stats: Stats }) {
+  return (
+    <div className="flex gap-4 flex-wrap justify-center">
+      {[
+        { icon: DollarSign, label: "Orders", val: fmt(stats.salesOrders, true) },
+        { icon: FileText, label: "Quotes", val: fmt(stats.quotations, true) },
+        { icon: CheckCircle2, label: "CSIs", val: fmt(stats.csis) },
+      ].map((c) => (
+        <div
+          key={c.label}
+          className="w-32 h-28 bg-white/20 backdrop-blur rounded-lg flex flex-col items-center justify-center"
+        >
+          <c.icon className="h-5 w-5 mb-1" />
+          <span className="text-sm">{c.label}</span>
+          <span className="text-lg font-bold">{c.val}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TargetSlide() {
+  return (
+    <div className="flex flex-col items-center">
+      <Target className="h-8 w-8 mb-2" />
+      <p className="text-xl font-bold">Monthly Target</p>
+      <p className="text-3xl font-extrabold">{fmt(7_500_000, true)}</p>
+    </div>
+  );
+}
+
+function RepsSlide({ reps }: { reps: string[] }) {
+  if (!reps.length) return <p>No reps.</p>;
+  return (
+    <div className="flex flex-wrap gap-3 justify-center max-w-md">
+      {reps.map((r) => (
+        <div
+          key={r}
+          className="w-20 bg-white/20 rounded-lg p-2 flex flex-col items-center"
+        >
+          <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center font-bold text-gray-700">
+            {r[0]}
+          </div>
+          <span className="text-xs">{r}</span>
+        </div>
+      ))}
     </div>
   );
 }
