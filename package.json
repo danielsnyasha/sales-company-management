@@ -10,6 +10,7 @@
     "seed": "tsc --project tsconfig.seed.json && node dist/seed/seed.js"
   },
   "dependencies": {
+    "@clerk/nextjs": "^6.25.3",
     "@hookform/resolvers": "^5.1.1",
     "@prisma/client": "6.8.2",
     "@radix-ui/react-accordion": "^1.2.11",
